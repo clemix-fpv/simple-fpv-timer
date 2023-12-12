@@ -1,0 +1,5 @@
+data/*
+**/*.swp
+compile_commands.json
+.pio
+tags
