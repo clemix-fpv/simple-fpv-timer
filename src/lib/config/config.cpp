@@ -4,6 +4,8 @@
 #include <logging.hpp>
 #include "config.hpp"
 
+
+const char *Config::DEFAULT_OSD_FORMAT = "%2L: %5.2ts(%6.2ds)";
 const char *Config::MAGIC = "c001";
 
 #define config_meta_UINT(var_name) {.name = #var_name, .type = UINT, .size = 0, .offset = offsetof(config_s, var_name)}
@@ -21,6 +23,11 @@ const struct config_meta_s config_meta[] =
 
     config_meta_UINT(calib_max_lap_count),
     config_meta_UINT(calib_min_rssi_peak),
+
+    config_meta_MACADDR(elrs_uid),
+    config_meta_UINT(osd_x),
+    config_meta_UINT(osd_y),
+    config_meta_STRING(osd_format, 32),
 
     config_meta_STRING(player_name, 32),
 
@@ -91,6 +98,8 @@ Config::Config()
 
     eeprom.calib_max_lap_count = 3;
     eeprom.calib_min_rssi_peak = 600;
+
+    strcpy(eeprom.osd_format, Config::DEFAULT_OSD_FORMAT);
 }
 
 void Config::parse_macaddr(unsigned char *dst, const char * value)

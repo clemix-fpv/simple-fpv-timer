@@ -26,6 +26,11 @@ struct config_s {
 
         char player_name[32];
 
+        uint8_t elrs_uid[6];
+        uint16_t osd_x;
+        uint16_t osd_y;
+        char osd_format[32];
+
         uint16_t wifi_mode;
         char ssid[32];
         char passphrase[32];
