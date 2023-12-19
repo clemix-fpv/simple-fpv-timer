@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 
+#include <esp_now.h>
 #include <esp_wifi.h>
 #include <WiFi.h>
 
@@ -13,6 +14,7 @@
 #include <SPIFFS.h>
 
 #include "logging.hpp"
+#include "osd.hpp"
 #include "config.hpp"
 
 
@@ -27,6 +29,11 @@ const char *wifi_hostname = "simple-FPV-timer";
 const uint8_t zero_mac[6] = {0,0,0,0,0,0};
 
 
+// This seems to need to be global, as per this page,
+// otherwise we get errors about invalid peer:
+// https://rntlap.com/question/espnow-peer-interface-is-invalid/
+esp_now_peer_info_t peerInfo;
+OSD osd;
 Config cfg;
 
 
@@ -261,6 +268,27 @@ void http_send_api_data(const String &api_method, const String &msg)
 
 void init_wifi() {
 
+    if (memcmp(zero_mac, cfg.eeprom.elrs_uid, 6) != 0) {
+        // MAC must be unicast, so unset multicase bit
+        cfg.eeprom.elrs_uid[0] = cfg.eeprom.elrs_uid[0] & ~0x01;
+
+        // TODO is this really needed!!
+        WiFi.mode(WIFI_STA);
+        WiFi.begin("network-name", "pass-to-network", 1);
+        WiFi.disconnect();
+
+        DBGLN("Set softMAC to bind bytes: %02hhx:%02hhx:%02hhx:%02hhx:%02hhx:%02hhx",
+                cfg.eeprom.elrs_uid[0],
+                cfg.eeprom.elrs_uid[1],
+                cfg.eeprom.elrs_uid[2],
+                cfg.eeprom.elrs_uid[3],
+                cfg.eeprom.elrs_uid[4],
+                cfg.eeprom.elrs_uid[5]
+                );
+        // Soft-set the MAC address to the passphrase UID for binding
+        esp_wifi_set_mac(WIFI_IF_STA, cfg.eeprom.elrs_uid);
+    }
+
     if (cfg.eeprom.wifi_mode == CFG_WIFI_STA) {
         WiFi.mode(WIFI_STA);
         if (strlen(cfg.eeprom.passphrase) > 0) {
@@ -289,6 +317,22 @@ void init_wifi() {
         ip = WiFi.gatewayIP();
         DBGLN("Gateway: %s", ip.toString().c_str());
 
+        if (memcmp(zero_mac, cfg.eeprom.elrs_uid, 6) != 0) {
+
+            if (esp_now_init() != 0) {
+                DBGLN("Error initializing ESP-NOW");
+            }
+
+            memcpy(peerInfo.peer_addr, cfg.eeprom.elrs_uid, 6);
+            peerInfo.channel = 0;
+            peerInfo.encrypt = false;
+            if (esp_now_add_peer(&peerInfo) != ESP_OK) {
+                DBGLN("ESP-NOW failed to add peer");
+                return;
+            }
+            DBGLN("ESP-NOW setup complete");
+        }
+
         http_send_api_data("connect", String("{\"player\": \"")+cfg.eeprom.player_name+String("\" }")) ;
 
     } else {
@@ -316,6 +360,24 @@ void init_wifi() {
             DBGLN("AP Config failed.");
         } else {
             DBGLN("AP Config Success. Broadcasting with AP: %s/%s", cfg.eeprom.ssid, cfg.eeprom.passphrase);
+        }
+
+        if (memcmp(zero_mac, cfg.eeprom.elrs_uid, 6) != 0) {
+            WiFi.disconnect();
+
+            if (esp_now_init() != 0) {
+                DBGLN("Error initializing ESP-NOW");
+            }
+
+            memcpy(peerInfo.peer_addr, cfg.eeprom.elrs_uid, 6);
+            peerInfo.channel = 0;
+            peerInfo.encrypt = false;
+            if (esp_now_add_peer(&peerInfo) != ESP_OK) {
+                DBGLN("ESP-NOW failed to add peer");
+                return;
+            }
+
+            DBGLN("ESP-NOW setup complete");
         }
     }
 }
@@ -528,7 +590,11 @@ void web_handle_POST_api_settings(AsyncWebServerRequest *request)
     for (int i = 0; i < request->params(); i++) {
         const char *name = request->getParam(i)->name().c_str(); 
         const char *value = request->getParam(i)->value().c_str();
-        cfg.setParam(name, value);
+        if (strcmp(name, "osd_format") == 0 && strlen(value) == 0){
+            cfg.setParam(name, Config::DEFAULT_OSD_FORMAT);
+        } else {
+            cfg.setParam(name, value);
+        }
     }
 
     // TODO load new config
@@ -586,6 +652,65 @@ void web_handle_api_connect(AsyncWebServerRequest *request, JsonVariant &json)
     }
     
     request->send(500, "text/json", "{ \"status\":\"error\"}");
+}
+
+void web_handle_api_osd_msg(AsyncWebServerRequest *request, JsonVariant &json) 
+{
+
+    if (memcmp(zero_mac, cfg.eeprom.elrs_uid, 6) != 0) {
+        JsonObject jsonObj = json.as<JsonObject>();
+        const char *method = 
+            jsonObj["method"].isNull() ? "display_text" : jsonObj["method"].as<const char *>();
+
+        if (!strcmp("display_text", method) && 
+                !jsonObj["text"].isNull() &&
+                !jsonObj["x"].isNull() &&
+                !jsonObj["y"].isNull() ){
+            char b[64];
+            snprintf(b, sizeof(b)-1, "%s", jsonObj["text"].as<const char*>());
+            b[sizeof(b)-1] = 0;
+            osd.display_text(jsonObj["x"].as<uint16_t>(), jsonObj["y"].as<uint16_t>(), b);
+            request_send_ok(request);
+
+        } else if(!strcmp("clear", method)){
+            osd.send_clear();
+            request_send_ok(request);
+
+        } else if(!strcmp("display", method)){
+            osd.send_display();
+            request_send_ok(request);
+
+        } else if(!strcmp("set_text", method)  && 
+                !jsonObj["text"].isNull() &&
+                !jsonObj["x"].isNull() &&
+                !jsonObj["y"].isNull() ){
+            char b[64];
+            snprintf(b, sizeof(b)-1, "%s", jsonObj["text"].as<const char*>());
+            b[sizeof(b)-1] = 0;
+            osd.send_text(jsonObj["x"].as<uint16_t>(), jsonObj["y"].as<uint16_t>(), b);
+            request_send_ok(request);
+
+        } else if (!strcmp("test_format", method) &&
+                !jsonObj["format"].isNull() ){
+            char b[128];
+            sprintf(b, "{\"status\":\"ok\", \"msg\":\"");
+            int len = strlen(b);
+            if (!osd.eval_format(jsonObj["format"].as<const char*>(), 
+                        23, 1337, 666, b+len, sizeof(b)-len)){
+                request->send(400, "text/json", 
+                        "{ \"status\":\"error\", \"msg\":\"Invalid OSD message format!\"}");
+
+            }else {
+                len = strlen(b);
+                snprintf(b+len, sizeof(b)-len, "\"}");
+                request->send(200, "text/json", b);
+            }
+        } else {
+            request->send(400, "text/json", "{ \"status\":\"error\", \"msg\":\"Unknown method\"}");
+        }
+    } else {
+        request->send(400, "text/json", "{ \"status\":\"error\", \"msg\":\"Elrs uid not configured - maybe you need to save first!\"}");
+    }
 }
 
 void web_handle_api_start_calibration(AsyncWebServerRequest *request)
@@ -676,6 +801,7 @@ void setup_server()
     server.addHandler(new AsyncCallbackJsonWebHandler("/api/v1/lap", web_handle_api_lap));
     server.on("/api/v1/clear_laps", web_handle_api_clear_laps);
     server.addHandler(new AsyncCallbackJsonWebHandler("/api/v1/connect", web_handle_api_connect));
+    server.addHandler(new AsyncCallbackJsonWebHandler("/api/v1/osd_msg", web_handle_api_osd_msg));
     server.onNotFound(web_handle_not_found);
 
     // init websockets
@@ -721,6 +847,11 @@ void setup()
 
     cfg.setRunningCfg();
 
+    osd.set_x(cfg.running.osd_x);
+    osd.set_y(cfg.running.osd_y);
+    osd.set_format(cfg.running.osd_format);
+    osd.set_peer(cfg.running.elrs_uid);
+
     setup_lap_counter_stats();
     DBGLN("Setup done!");
 }
@@ -749,6 +880,12 @@ void on_drone_passed(int rssi, unsigned long abs_time_ms)
 
     if (lc.in_calib_mode) {
         lc.in_calib_lap_count ++;
+        if (memcmp(zero_mac, cfg.eeprom.elrs_uid, 6) != 0) {
+            char b[64];
+            sprintf(b, "calib: %d/%d rssi:%d", lc.in_calib_lap_count,
+                    cfg.running.calib_max_lap_count, lc.rssi_peak);
+            osd.display_text(cfg.running.osd_x, cfg.running.osd_y, b);
+        }
         if (lc.in_calib_lap_count >= cfg.running.calib_max_lap_count) {
             lc.in_calib_mode = false;
             cfg.eeprom.rssi_peak = lc.rssi_peak; 
@@ -765,6 +902,12 @@ void on_drone_passed(int rssi, unsigned long abs_time_ms)
                     abs_time_ms);
 
             DBGLN("LAP[%d]: %ldms rssi:%d", lap->id, lap->duration_ms, lap->rssi);
+            
+            if (memcmp(zero_mac, cfg.eeprom.elrs_uid, 6) != 0) {
+                // SEND TIME TO GOGGLE
+                long diff = (long)lap->duration_ms - fastes_duration;
+                osd.send_lap(lap->id, lap->duration_ms, diff);
+            }
 
             if (cfg.eeprom.wifi_mode == CFG_WIFI_STA && WiFi.status() == WL_CONNECTED) {
                 http_send_api_data("lap", String("{\"player\":\"") + 

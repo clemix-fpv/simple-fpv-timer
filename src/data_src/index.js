@@ -168,6 +168,71 @@ function build_common_setting(key, value)
         '</div>');
 }
 
+function on_btn_test_osd(e)
+{
+    e.preventDefault();
+    data = {};
+
+    var form = $(e.target).parents("form");
+    data.x = form.find('.input_osd_x').val();
+    data.y = form.find('.input_osd_y').val();
+    var text_elem = form.find('.input_osd_text');
+    data.text = text_elem.val();
+    if (data.text.length == 0)
+        data.text = text_elem.attr('placeholder');
+    var format_elem = form.find('.input_osd_format');
+    if (format_elem.length) {
+        data.format = format_elem.val();
+        if (data.format.length == 0)
+            data.format = format_elem.attr('placeholder');
+    }
+    data.method = $(e.target).data('method');
+    $.ajax({
+        url: '/api/v1/osd_msg',
+        type: 'POST',
+        contentType: "application/json",
+        data: JSON.stringify(data),
+    }).always(function(data){
+        notify_response("Send OSD message", data);
+    });
+}
+
+function build_osd_test(debug)
+{
+    var row = $('<div class="form-row mb-2">');
+    var col = $('<div class="col-auto">');
+    row.append(col);
+    col.append('<label class="form-label" for="osd_test_text">Test osd message:</label>');
+    col.append('<input type="text" class="form-control mb-2 input_osd_text" placeholder=" 2: 2.32 (- 0.44)">');
+
+    col = $('<div class="col-auto">');
+    row.append(col);
+    col.append('<span id="test_osd_msg" style="opasity: 0">');
+    if (debug) {
+        $.each(['clear', 'display','set_text'], function(index, value) {
+            var btn = $('<a href="" class="btn btn-secondary btn-sm active" style="float:right;" data-method="'+value+'" role="button">'+value+'</a>');
+            btn.on("click",on_btn_test_osd);
+            col.append(btn);
+        });
+    }
+    var btn = $('<a href="#" class="btn btn-secondary btn-sm active" style="float:right;" data-method="display_text" role="button" aria-pressed="true" tooltip="Check you goggles to see the OSD message">Test</a>');
+    btn.click(on_btn_test_osd);
+    col.append(btn);
+    btn = $('<a href="#" class="btn btn-secondary btn-sm active" style="float:right;" data-method="test_format" role="button" aria-pressed="true" tooltip="Check current format string">Check Format</a>');
+    btn.click(on_btn_test_osd);
+    col.append(btn);
+    return row;
+}
+
+
+function build_osd_format(key, value)
+{
+    var row = $('<div class="mb-3">');
+    row.append('<label class="form-label" for="input_osd_format">OSD format string</label>');
+    row.append('<input name="osd_format" type="text" id="input_osd_format" class="form-control input_osd_format" placeholder="%2L: %5.2ts(%6.2ds)" value="'+value+'">');
+    row.append('<div class="form-text" id="basic-addon4">%L=lap number, %tm=time in minutes, %ts=time in seconds, %tms=time in milliseconds, %dm=difference to fastes lap in minutes, %ds=difference to fastes lap in seconds, %dms=difference to fastes lap in milliseconds</div>');
+    return row;
+}
 
 function build_common_status(key, value)
 {
@@ -212,6 +277,10 @@ function build_settings(config)
             elements: ["rssi_peak", "rssi_filter", "rssi_offset_enter", "rssi_offset_leave", "calib_max_lap_count", "calib_min_rssi_peak"]
         },
         { 
+            name: "expressLRS/OSD",
+            elements: ["elrs_uid", "osd_x", "osd_y", "osd_format", "osd_test"]
+        },
+        { 
             name: "WiFi",
             elements: ["wifi_mode", "ssid", "passphrase"]
         }
@@ -226,6 +295,10 @@ function build_settings(config)
             var h = "";
             if (elem == "freq") {
                 h = build_freq(elem, config[elem]);
+            } else if (elem == "osd_test") {
+                h = build_osd_test();  
+            } else if (elem == "osd_format") {
+                h = build_osd_format(elem, config[elem]);  
             } else if (elem == "wifi_mode") {
                 h = build_wifi_mode(elem, config[elem]);  
             } else {
@@ -578,6 +651,14 @@ function update_debug()
                 status_table.append(h);
             }
 
+            osd_form = $('<form class="form-horizontal" action="" id="form_settings" method="post"/>');
+            $.each(['osd_x', 'osd_y'], function(i,v){
+                osd_form.append(build_common_setting(v, data.config[v]));
+            });
+            osd_form.append(build_osd_test(true));
+
+
+            dbg.append(build_card('OSD Debugging:', osd_form));
             dbg.append(build_card('Status:', status_table));
 
             dbg.append(build_card('Graph:', "<div id='id_graph'/>"));
