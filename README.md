@@ -25,9 +25,9 @@ Once you have connected to the AP, the captive portal webpage should automatical
 
 # Screenshots
 
-<img src="https://github.com/clemix-fpv/simple-fpv-timer/blob/update_docs/doc/images/webui_mobile_lap_view.png?raw=true" width="300px" />
-<img src="https://github.com/clemix-fpv/simple-fpv-timer/blob/update_docs/doc/images/webui_mobile_player_view.png?raw=true" width="300px" />
-<img src="https://github.com/clemix-fpv/simple-fpv-timer/blob/update_docs/doc/images/webui_mobile_config_view.png?raw=true" width="300px" />
-<img src="https://github.com/clemix-fpv/simple-fpv-timer/blob/update_docs/doc/images/webui_mobile_debug_rssi_graph.png?raw=true" width="300px" />
-<img src="https://github.com/clemix-fpv/simple-fpv-timer/blob/update_docs/doc/images/hdz_osd_timer.png?raw=true" width="90%" />
+<img src="https://github.com/clemix-fpv/simple-fpv-timer/blob/main/doc/images/webui_mobile_lap_view.png?raw=true" width="300px" />
+<img src="https://github.com/clemix-fpv/simple-fpv-timer/blob/main/doc/images/webui_mobile_player_view.png?raw=true" width="300px" />
+<img src="https://github.com/clemix-fpv/simple-fpv-timer/blob/main/doc/images/webui_mobile_config_view.png?raw=true" width="300px" />
+<img src="https://github.com/clemix-fpv/simple-fpv-timer/blob/main/doc/images/webui_mobile_debug_rssi_graph.png?raw=true" width="300px" />
+<img src="https://github.com/clemix-fpv/simple-fpv-timer/blob/main/doc/images/hdz_osd_timer.png?raw=true" width="90%" />
 
