@@ -90,6 +90,8 @@ def prepare_www_files(source, target, env):
                 filetype = "text/javascript"
             if filename.endswith('.ogg'):
                 filetype = "audio/ogg"
+            if filename.endswith('.svg'):
+                filetype = "image/svg+xml"
             h_file_content.append((filename, gzip, filetype, "file_%02d" %fcnt, cnt))
             fcnt+=1
 

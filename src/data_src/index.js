@@ -158,14 +158,22 @@ function build_wifi_mode(key, value)
 }
 
 
-function build_common_setting(key, value)
+function build_common_setting(o, value)
 {
-    return $('<div class="form-group" id="fg_settings_'+key+'">' + 
+    var key = o.name;
+    var s='<div class="form-group" id="fg_settings_'+key+'">' + 
         '<fieldset>'+
-        '<label class="form-label" for="input_'+key+'">'+key+'</label>'+
+        '<label class="form-label" for="input_'+key+'">'+key;
+    if (o.help) {
+        s += '<a style="margin: 0 5px" href="#" data-toggle="tooltip" data-trigger="click" title="'+o.help+'">'+
+            '<img src="/question-circle.svg"/>'
+            '</a>';
+    }
+    s+= '</label>'+
         '<input class="form-control input_'+key+'" name="'+key+'" id="input_'+key+'" type="text" value="'+value+'">'+
         '</fieldset>'+
-        '</div>');
+        '</div>';
+    return $(s);
 }
 
 function on_btn_test_osd(e)
@@ -274,7 +282,36 @@ function build_settings(config)
         },
         { 
             name: "Callibration/Meassurment",
-            elements: ["rssi_peak", "rssi_filter", "rssi_offset_enter", "rssi_offset_leave", "calib_max_lap_count", "calib_min_rssi_peak"]
+            elements: [
+                { 
+                    name: "rssi_peak",
+                    help: "The expected RSSI maximum, when the drone fly through the gate."
+                },
+                {
+                    name: "rssi_filter",
+                    help: "Smooth the RSSI input signals. Range is 1-100, a value near" +
+                          " to 1 smooth more, a value of 100 keeps the raw RSSI value." 
+                }, 
+                {
+                    name: "rssi_offset_enter",
+                    help: "The percentage of 'RSSI-Peak' to count a drone as entered" +
+                          " the gate. The range is 50-100 (Default: 80)"
+                }, 
+                {
+                    name: "rssi_offset_leave",
+                    help: "The percentage of 'RSSI-Peak' to count a drone as leaved the"+
+                          " gate. The range is 50-100 (Default: 70)"
+                }, 
+                {
+                    name: "calib_max_lap_count",
+                    help: "The number of laps to be detected to finish the calibration."
+                }, 
+                {
+                    name: "calib_min_rssi_peak",
+                    help: "The minimum RSSI value to detect a 'drone enter gate' during" +
+                          " calibration."
+                }
+            ],
         },
         { 
             name: "expressLRS/OSD",
@@ -293,21 +330,24 @@ function build_settings(config)
         lgi.append('<h5 style="text-align: right" >'+fg.name+'</h5>');
         for(var elem of fg.elements) {
             var h = "";
-            if (elem == "freq") {
-                h = build_freq(elem, config[elem]);
-            } else if (elem == "osd_test") {
+            var o = typeof elem == 'object' ? elem : {name: elem};
+            var name = o.name; 
+            if (name == "freq") {
+                h = build_freq(name, config[name]);
+            } else if (name == "osd_test") {
                 h = build_osd_test();  
-            } else if (elem == "osd_format") {
-                h = build_osd_format(elem, config[elem]);  
-            } else if (elem == "wifi_mode") {
-                h = build_wifi_mode(elem, config[elem]);  
+            } else if (name == "osd_format") {
+                h = build_osd_format(name, config[name]);  
+            } else if (name == "wifi_mode") {
+                h = build_wifi_mode(name, config[name]);  
             } else {
-                h = build_common_setting(elem, config[elem]);
+                h = build_common_setting(o, config[name]);
             }
             lgi.append(h);
         }
         lg.append(lgi);
     }
+    
     form.append(lg);
     form.append('<div class="d-flex justify-content-center"><button type="submit" class="btn btn-primary">Submit</button></div>');
     s.append(form);
@@ -322,6 +362,17 @@ function build_settings(config)
             notify_response("Configuration saved", data);
         });
 
+    });
+
+    $('a[data-toggle="tooltip"]').click(function(e) {
+        e.tooltip("toggle");
+        return false;
+    });
+
+    $('a[data-toggle="tooltip"]').tooltip({
+        animated: 'fade',
+        placement: 'top',
+        trigger: 'click'
     });
 
 }
@@ -345,7 +396,7 @@ function on_new_lap(lap)
     }
 }
 
-function update_home()
+function update_laps()
 {
     $.ajax({
         url: '/api/v1/settings'
@@ -416,8 +467,8 @@ function update_home()
 
         });
 
-    if (tab_name == 'home') {
-        setTimeout(update_home, 2000);
+    if (tab_name == 'laps') {
+        setTimeout(update_laps, 2000);
     }
 }
 
@@ -682,7 +733,7 @@ $('.nav a[href$=players]').on('click', function(e){
 
 $('.nav a[href$=laps]').on('click', function(e){
     tab_name = "laps";
-    update_home();
+    update_laps();
 });
 
 $('.nav a[href$=debug]').on('click', function(e){
@@ -699,7 +750,7 @@ $('.btn_enable_sound').click(function(){
 });
 
 $(function () {
-    update_home();
+    update_laps();
     $('[data-toggle="tooltip"]').tooltip({trigger: 'hover'});
     Howler.autoUnlock = false;
     sound = new Howl({
