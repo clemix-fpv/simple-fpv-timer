@@ -11,11 +11,11 @@
 #include <HTTPClient.h>
 #include <AsyncJson.h>
 #include <ArduinoJson.h>
-#include <SPIFFS.h>
 
 #include "logging.hpp"
 #include "osd.hpp"
 #include "config.hpp"
+#include "static_files.h"
 
 
 const int slaveSelectPin = SS; // Setup data pins for rx5808 comms
@@ -405,7 +405,6 @@ String toStringIp(IPAddress ip) {
 
 static bool web_captive_portal(AsyncWebServerRequest *request)
 {
-    DBGLN("Host: %s ", String(request->host()).c_str());
     if (!is_ip(request->host()) && request->host() != (String(wifi_hostname) + ".local"))
     {
         DBGLN("Request redirected to captive portal");
@@ -417,106 +416,65 @@ static bool web_captive_portal(AsyncWebServerRequest *request)
     return false;
 }
 
+const struct static_files* get_static_file_by_name(const char * name)
+{
+    const struct static_files *f;
+    for (f = STATIC_FILES; f->name; f++){
+        if (strcmp(f->name, name) == 0){
+            return f;
+        }
+    }
+    return NULL;
+}
 
 void web_handle_root(AsyncWebServerRequest *request)
 {
-    DBGLN("HandleRoot");
     if (web_captive_portal(request)) { 
+        DBGLN("Done with captive portal");
         return;
     }
 
-    AsyncWebServerResponse *response = request->beginResponse(SPIFFS, "/index.html.gz", "text/html");
-    response->addHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-    response->addHeader("Pragma", "no-cache");
-    response->addHeader("Expires", "-1");
-    response->addHeader("Content-Encoding", "gzip");
-    request->send(response);
-    return;
-#if 0
-    String p;
-    p += F(
-            "<html><head></head><body>"
-            "<h1>HELLO WORLD!!</h1>");
-    p += F("</body></html>");
-    DBGLN("HandleRoot send :%s", p.c_str());
-
-    DBGLN("FOO");
-    //  request->send(200,"text/html", p);
-    //return;
-
-    AsyncWebServerResponse *response;
-    response = request->beginResponse(200, "text/html", p);
-    response->addHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-    response->addHeader("Pragma", "no-cache");
-    response->addHeader("Expires", "-1");
-    request->send(response);
-#endif
-}
-
-void web_handle_static_gz_spiffs(AsyncWebServerRequest *request)
-{
     String file = request->url();
-    String type = "text/html";
-    if (file.endsWith(".css"))
-        type = "text/css";
-    else if (file.endsWith(".js"))
-        type = "text/javascript";
-
-    file += ".gz";
-    AsyncWebServerResponse *response = request->beginResponse(SPIFFS, file.c_str(), type.c_str());
-    response->addHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-    response->addHeader("Pragma", "no-cache");
-    response->addHeader("Expires", "-1");
-    response->addHeader("Content-Encoding", "gzip");
-    request->send(response);
-}
-
-void web_handle_static_spiffs(AsyncWebServerRequest *request)
-{
-    String file = request->url();
-    String type = "text/html";
-    if (file.endsWith(".css"))
-        type = "text/css";
-    else if (file.endsWith(".js"))
-        type = "text/javascript";
-    else if (file.endsWith(".ogg"))
-        type = "audio/ogg";
-
-    AsyncWebServerResponse *response = request->beginResponse(SPIFFS, file.c_str(), type.c_str());
-    response->addHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-    response->addHeader("Pragma", "no-cache");
-    response->addHeader("Expires", "-1");
-    request->send(response);
-}
-
-
-void web_handle_not_found(AsyncWebServerRequest *request)
-{
-    DBGLN("handleNotFound");
-    if (web_captive_portal(request)) { 
-        return;
-    }
-    String message = F("File Not Found\n\n");
-    message += F("URI: ");
-    message += request->url();
-    message += F("\nMethod: ");
-    message += (request->method() == HTTP_GET) ? "GET" : "POST";
-    message += F("\nArguments: ");
-    message += request->args();
-    message += F("\n");
-
-    for (uint8_t i = 0; i < request->args(); i++) {
-        message += String(F(" ")) + request->argName(i) + F(": ") + request->arg(i) + F("\n");
+    if (file == "" || file == "/") {
+        file = "/index.html";
     }
 
-    DBGLN("HandleNotFound send: %s", message.c_str());
-    AsyncWebServerResponse *response;
-    response = request->beginResponse(404, "text/html", message);
-    response->addHeader("Content-Encoding", "gzip");
-    response->addHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-    response->addHeader("Pragma", "no-cache");
-    response->addHeader("Expires", "-1");
-    request->send(response);
+    const struct static_files *f = get_static_file_by_name(file.c_str());
+    if (f) {
+        AsyncWebServerResponse *response = request->beginResponse_P(200, f->type, f->data, f->data_len);
+        response->addHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+        response->addHeader("Pragma", "no-cache");
+        response->addHeader("Expires", "-1");
+        if (f->is_gzip)
+            response->addHeader("Content-Encoding", "gzip");
+        request->send(response);
+    } else {
+        String message = F("<h1>File Not Found</h1>");
+        message += F("<div>");
+        message += F("URI: ");
+        message += request->url();
+        message += F("</div>");
+        message += F("<div>");
+        message += F("Method: ");
+        message += (request->method() == HTTP_GET) ? "GET" : "POST";
+        message += F("</div>");
+        message += F("<div>");
+        message += F("Arguments: ");
+        message += request->args();
+
+        for (uint8_t i = 0; i < request->args(); i++) {
+            message += String(F("<div>")) + request->argName(i) + F(": ") + request->arg(i) + F("</div>");
+        }
+        message += F("</div>");
+
+        DBGLN("HandleNotFound send: %s", message.c_str());
+        AsyncWebServerResponse *response;
+        response = request->beginResponse(404, "text/html", message);
+        response->addHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+        response->addHeader("Pragma", "no-cache");
+        response->addHeader("Expires", "-1");
+        request->send(response);
+    }
 }
 
 String lap2String(struct lap_s *lap)
@@ -760,40 +718,10 @@ void onWSEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventTyp
 
 void setup_server()
 {
-    const char *static_gz_files[] = {
-        "/bootstrap.min.css",
-        "/bootstrap.bundle.min.js",
-        "/jquery.min.js",
-        "/index.js",
-        "/howler.min.js",
-        "/index.html",
-        "/uPlot.iife.min.js",
-        "/uPlot.min.css",
-        NULL
-    };
-    const char *static_files[] = {
-        "/round.ogg",
-        NULL
-    };
-    const char **f;
-
-    if(!SPIFFS.begin()){
-        Serial.println("An Error has occurred while mounting SPIFFS");
-        return;
-    }
     /* Setup the DNS server redirecting all the domains to the apIP */
     dnsServer.setErrorReplyCode(DNSReplyCode::NoError);
     dnsServer.start(DNS_PORT, "*", WiFi.softAPIP());
 
-
-    /* Setup the web server */
-    server.on("/", web_handle_root);
-    server.on("/generate_204", web_handle_root);
-
-    for (f = static_gz_files; *f; f++)
-        server.on(*f, web_handle_static_gz_spiffs);
-    for (f = static_files; *f; f++)
-        server.on(*f, web_handle_static_spiffs);
 
     server.on("/api/v1/settings", HTTP_GET, web_handle_GET_api_settings);
     server.on("/api/v1/settings", HTTP_POST, web_handle_POST_api_settings);
@@ -802,7 +730,7 @@ void setup_server()
     server.on("/api/v1/clear_laps", web_handle_api_clear_laps);
     server.addHandler(new AsyncCallbackJsonWebHandler("/api/v1/connect", web_handle_api_connect));
     server.addHandler(new AsyncCallbackJsonWebHandler("/api/v1/osd_msg", web_handle_api_osd_msg));
-    server.onNotFound(web_handle_not_found);
+    server.onNotFound(web_handle_root);
 
     // init websockets
     ws.onEvent(onWSEvent);
