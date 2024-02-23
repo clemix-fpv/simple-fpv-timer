@@ -1,1 +1,6 @@
+src/data/*
+**/*.swp
+src/compile_commands.json
+.pio
+tags
 src/src/static_files.h
