@@ -4,3 +4,6 @@ src/compile_commands.json
 .pio
 tags
 src/src/static_files.h
+.clang_complete
+.gcc-flags.json
+.ccls

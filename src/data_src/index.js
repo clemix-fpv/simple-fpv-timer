@@ -11,21 +11,24 @@ function init_websocket() {
     websocket.onclose   = onClose;
     websocket.onmessage = onMessage; // <-- add this line
 }
+
 function onOpen(event) {
     on_rssi_update({"CONNECTION": "OPEN"});
 }
+
 function onClose(event) {
     on_rssi_update({"CONNECTION": "CLOSED"});
     if (tab_name == "debug"){
         setTimeout(init_websocket, 2000);
     }
 }
+
 function onMessage(event) {
     try {
         json = JSON.parse(event.data);
         on_rssi_update(json);
         graph_update(json);
-        
+
     } catch (e) {
         return console.error(e); // error in the above string (in this case, yes)!
     }
@@ -91,18 +94,19 @@ function notify(success, msg)
     e.animate({top: -1 * e.height() - 5}, 1500);
 }
 
-function notify_response(msg, data) 
+function notify_response(msg, data)
 {
-    if (data.status == "ok")
+    j = data.responseJSON ? data.responseJSON : data;
+    if (j.status == "ok")
     {
         msg += " SUCCESSFUL";
-        if (data.msg)
-            msg += " - " + data.msg;
+        if (j.msg)
+            msg += " - " + j.msg;
         notify(true, msg)
     } else {
         msg += " FAILED";
-        if (data.msg)
-            msg += " - " + data.msg;
+        if (j.msg)
+            msg += " - " + j.msg;
         notify(false, msg);
     }
 }
@@ -161,7 +165,7 @@ function build_wifi_mode(key, value)
 function build_common_setting(o, value)
 {
     var key = o.name;
-    var s='<div class="form-group" id="fg_settings_'+key+'">' + 
+    var s='<div class="form-group" id="fg_settings_'+key+'">' +
         '<fieldset>'+
         '<label class="form-label" for="input_'+key+'">'+key;
     if (o.help) {
@@ -196,7 +200,7 @@ function on_btn_test_osd(e)
     }
     data.method = $(e.target).data('method');
     $.ajax({
-        url: '/api/v1/osd_msg',
+        url: '/api/v1/osd/' + data.method,
         type: 'POST',
         contentType: "application/json",
         data: JSON.stringify(data),
@@ -269,6 +273,14 @@ function build_common_status_players(key, players)
     return build_common_status(key, h);
 }
 
+function objectifyForm(formArray) {
+    //serialize data function
+    var returnArray = {};
+    for (var i = 0; i < formArray.length; i++){
+        returnArray[formArray[i]['name']] = formArray[i]['value'];
+    }
+    return returnArray;
+}
 
 function build_settings(config)
 {
@@ -276,36 +288,36 @@ function build_settings(config)
     s.empty();
 
     var form_groups = [
-        { 
+        {
             name: "Player settings",
             elements: ["freq", "player_name"]
         },
-        { 
+        {
             name: "Callibration/Meassurment",
             elements: [
-                { 
+                {
                     name: "rssi_peak",
                     help: "The expected RSSI maximum, when the drone fly through the gate."
                 },
                 {
                     name: "rssi_filter",
                     help: "Smooth the RSSI input signals. Range is 1-100, a value near" +
-                          " to 1 smooth more, a value of 100 keeps the raw RSSI value." 
-                }, 
+                          " to 1 smooth more, a value of 100 keeps the raw RSSI value."
+                },
                 {
                     name: "rssi_offset_enter",
                     help: "The percentage of 'RSSI-Peak' to count a drone as entered" +
                           " the gate. The range is 50-100 (Default: 80)"
-                }, 
+                },
                 {
                     name: "rssi_offset_leave",
                     help: "The percentage of 'RSSI-Peak' to count a drone as leaved the"+
                           " gate. The range is 50-100 (Default: 70)"
-                }, 
+                },
                 {
                     name: "calib_max_lap_count",
                     help: "The number of laps to be detected to finish the calibration."
-                }, 
+                },
                 {
                     name: "calib_min_rssi_peak",
                     help: "The minimum RSSI value to detect a 'drone enter gate' during" +
@@ -313,11 +325,11 @@ function build_settings(config)
                 }
             ],
         },
-        { 
+        {
             name: "expressLRS/OSD",
             elements: ["elrs_uid", "osd_x", "osd_y", "osd_format", "osd_test"]
         },
-        { 
+        {
             name: "WiFi",
             elements: ["wifi_mode", "ssid", "passphrase"]
         }
@@ -331,15 +343,15 @@ function build_settings(config)
         for(var elem of fg.elements) {
             var h = "";
             var o = typeof elem == 'object' ? elem : {name: elem};
-            var name = o.name; 
+            var name = o.name;
             if (name == "freq") {
                 h = build_freq(name, config[name]);
             } else if (name == "osd_test") {
-                h = build_osd_test();  
+                h = build_osd_test();
             } else if (name == "osd_format") {
-                h = build_osd_format(name, config[name]);  
+                h = build_osd_format(name, config[name]);
             } else if (name == "wifi_mode") {
-                h = build_wifi_mode(name, config[name]);  
+                h = build_wifi_mode(name, config[name]);
             } else {
                 h = build_common_setting(o, config[name]);
             }
@@ -347,17 +359,19 @@ function build_settings(config)
         }
         lg.append(lgi);
     }
-    
+
     form.append(lg);
     form.append('<div class="d-flex justify-content-center"><button type="submit" class="btn btn-primary">Submit</button></div>');
     s.append(form);
     form.on( "submit", function( event ) {
         event.preventDefault();
-        let mydata = $(this).serialize();
+        let mydata = objectifyForm($(this).serializeArray());
         $.ajax({
             url: '/api/v1/settings',
             type: 'POST',
-            data: $(this).serialize()
+            contentType: "application/json; charset=utf-8",
+            dataType: "json",
+            data: JSON.stringify(mydata)
         }).always(function(data){
             notify_response("Configuration saved", data);
         });
@@ -384,6 +398,9 @@ function update_settings()
     })
         .done(function(data) {
             build_settings(data.config);
+        })
+        .error(function(xhr, textStatus) {
+            notify_response("Failed to get settings", xhr);
         });
 }
 
@@ -534,9 +551,9 @@ function update_players()
             $.each(cards, function (i, v) {
                 card = $('<div class="card" style="margin: 5px;">');
                 var medal = "";
-                medal = (v.rank == 1)? "&#127942;"/*"&#129351;"*/ : 
-                    (v.rank == 2)? "&#129352;" : 
-                    (v.rank == 3)? "&#129353;" : 
+                medal = (v.rank == 1)? "&#127942;"/*"&#129351;"*/ :
+                    (v.rank == 2)? "&#129352;" :
+                    (v.rank == 3)? "&#129353;" :
                     v.rank + ".";
                 var btn_edit = (v.ipaddr)? '<a href="http://'+v.ipaddr+'" class="btn btn-secondary btn-sm" style="float:right" role="button" >&#9881;</a>':'';
                 card.append('<h5 class="card-header">'+ medal +" "+ v.name + btn_edit +'</h5>');
@@ -545,7 +562,7 @@ function update_players()
                 table.append('<tr><td class="card-text" >Time:</td><td class="card-text">'+ (v.time > 0 ? format_ms(v.time) : 0) +'</td></tr>');
                 fastes = "";
                 if (v.fastes) {
-                    fastes = format_ms(v.fastes.duration) + ' <small class="text-muted">(Lap ' + v.fastes.id + ')</small>'; 
+                    fastes = format_ms(v.fastes.duration) + ' <small class="text-muted">(Lap ' + v.fastes.id + ')</small>';
                 }
                 table.append('<tr><td class="card-text">Fastes:</td><td class="card-text">'+ fastes +'</td></tr>');
                 card.append(table);
@@ -573,7 +590,35 @@ function build_card(title, content, id)
     return card;
 }
 
+function format_int(i, f) {
+    if (!f) {
+        f = 0;
+    }
+    i = parseInt(i, 10);
+
+    return (i).toLocaleString(
+      undefined,
+      { minimumFractionDigits: f, maximumFractionDigits: f}
+    );
+}
+
+function format_ms_short(ms) {
+    var sec_num = parseInt(ms, 10);
+    var hours   = Math.floor(sec_num / 3600 / 1000);
+    var minutes = Math.floor((sec_num - (hours * 3600 * 1000)) / 60 / 1000);
+    var seconds = Math.floor((sec_num - (hours * 3600 * 1000)  - (minutes * 60 * 1000)) / 1000);
+    var ms = sec_num - (hours * 3600 * 1000) - (minutes * 60 * 1000) - seconds * 1000;
+
+    var t = [[hours, "h"], [minutes,"m"], [seconds,"."], [ms,"s"]];
+    var ret = "";
+    for (i=0; i < t.length; i++){
+        ret += "" + t[i][0] + t[i][1];
+    }
+    return ret;
+}
+
 let uplot = null;
+let time0 = 0;
 function graph(id)
 {
     let xs = [1,2,3,4,5,6,7,];
@@ -604,10 +649,15 @@ function graph(id)
                 range: [100, 1200],
             }
         },
+        axes: [
+            {
+              values: (self, ticks) => ticks.map(rawValue => format_ms_short(rawValue)),
+            },
+        ],
         series: [
             {
                 label: "millis",
-                value: (u, v) => v == null ? null : (v - u._data[0][0]) + "ms",
+                value: (u, v) => v == null ? null : format_ms_short(v),
             },
             {
                 stroke: "red",
@@ -630,6 +680,9 @@ function graph_update(json)
 {
     let data = uplot._data;
     let timeduration = 10000;
+
+    if (time0 == 0)
+        time0 = json.t;
 
     rssi_idx = data.length - 2;
 
@@ -654,11 +707,12 @@ function graph_update(json)
         }
     }
 
-    data[0].push(json.t);
+    t = json.t - time0;
+    data[0].push(t);
     data[rssi_idx].push(json.r);
     data[rssi_idx + 1].push(json.s);
 
-    let older_as = json.t - timeduration;
+    let older_as = t - timeduration;
     while(data[0][0] < older_as){
         data[0].shift();
         data[rssi_idx].shift();
@@ -674,8 +728,86 @@ function graph_update(json)
             arr[j+start_idx] = u.r;
         });
     });
-   
+
     uplot.setData(data);
+}
+
+function ival(obj)
+{
+    if (obj) {
+        return obj.val()? obj.val(): obj.attr('placeholder');
+    }
+    return null;
+}
+
+function on_btn_lap_debugging(e)
+{
+    e.preventDefault();
+    data = {};
+
+    var form = $(e.target).parents("form");
+    var method = $(e.target).data('method');
+
+    data.player = ival(form.find('.input_player_name'));
+
+    if (method == "lap") {
+        data.lap = {
+            id: ival(form.find('.input_lap_id')),
+            rssi: ival(form.find('.input_lap_rssi')),
+            duration: ival(form.find('.input_lap_duration')),
+        };
+    }
+
+    $.ajax({
+        url: '/api/v1/player/' + method,
+        type: 'POST',
+        contentType: "application/json",
+        data: JSON.stringify(data),
+    }).always(function(data){
+        notify_response("Send lap debug message", data);
+    });
+}
+
+function player_debugging()
+{
+    var row = $('<div class="form-row mb-2">');
+    var form = $('<form>');
+    row.append(form);
+    var col = $('<div class="col-auto">');
+    form.append(col);
+    col.append('<label class="form-label" for="player_name">Connect new Player:</label>');
+    col.append('<input type="text" class="form-control mb-2 input_player_name" placeholder="clemix">');
+    col = $('<div class="col-auto">');
+    form.append(col);
+
+    var value = 'connect'
+    var btn = $('<a href="" class="btn btn-secondary btn-sm active" style="" data-method="'+value+'" role="button">'+value+'</a>');
+    btn.on("click",on_btn_lap_debugging);
+    col.append(btn);
+
+    row.append('<hr>')
+    /* lap form */
+    form = $('<form>');
+    row.append(form);
+    var col = $('<div class="col-auto">');
+    form.append(col);
+    col.append('<label class="form-label" for="player_name">Player:</label>');
+    col.append('<input type="text" class="form-control mb-2 input_player_name" placeholder="clemix">');
+    col.append('<label class="form-label" for="player_name">lap.id:</label>');
+    col.append('<input type="text" class="form-control mb-2 input_lap_id" placeholder="99">');
+    col.append('<label class="form-label" for="player_name">lap.rssi:</label>');
+    col.append('<input type="text" class="form-control mb-2 input_lap_rssi" placeholder="1000">');
+    col.append('<label class="form-label" for="player_name">lap.duration:</label>');
+    col.append('<input type="text" class="form-control mb-2 input_lap_duration" placeholder="66">');
+    col = $('<div class="col-auto">');
+    form.append(col);
+
+    var value = 'lap'
+    var btn = $('<a href="" class="btn btn-secondary btn-sm active" style="float:right;" data-method="'+value+'" role="button">'+value+'</a>');
+    btn.on("click",on_btn_lap_debugging);
+    col.append(btn);
+
+    return row;
 }
 
 function update_debug()
@@ -707,7 +839,7 @@ function update_debug()
                 osd_form.append(build_common_setting(v, data.config[v]));
             });
             osd_form.append(build_osd_test(true));
-
+            dbg.append(build_card('Player Debugging', player_debugging));
 
             dbg.append(build_card('OSD Debugging:', osd_form));
             dbg.append(build_card('Status:', status_table));
@@ -717,7 +849,7 @@ function update_debug()
         });
 
     if (tab_name == 'debug') {
-        //setTimeout(update_debug, 500);    
+        //setTimeout(update_debug, 500);
     }
 }
 

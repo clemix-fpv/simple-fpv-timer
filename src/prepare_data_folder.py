@@ -118,4 +118,5 @@ const struct static_files STATIC_FILES[] = {
 
 
 
-env.AddPreAction("${BUILD_DIR}/src/simple_fpv_timer.cpp.o", prepare_www_files)
+env.AddPreAction("${BUILD_DIR}/src/gui.c.o", prepare_www_files)
+#env.AddPreAction("program", prepare_www_files)
