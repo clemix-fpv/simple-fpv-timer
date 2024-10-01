@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0+
+
 #include "msp.h"
 #include <string.h>
 

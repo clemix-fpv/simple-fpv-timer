@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0+
+
 #include "simple_fpv_timer.h"
 #include "config.h"
 #include "json.h"

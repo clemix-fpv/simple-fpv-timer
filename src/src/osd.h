@@ -1,20 +1,4 @@
-/*
- * =====================================================================================
- *
- *       Filename:  sendmsp.hpp
- *
- *    Description:  
- *
- *        Version:  1.0
- *        Created:  22.08.2023 23:03:01
- *       Revision:  none
- *       Compiler:  gcc
- *
- *         Author:  YOUR NAME (), 
- *   Organization:  
- *
- * =====================================================================================
- */
+// SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
 #include <stdbool.h>
