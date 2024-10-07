@@ -29,6 +29,7 @@
 #endif  // !CONFIG_IDF_TARGET_LINUX
 //
 #include "config.h"
+#include "wifi.h"
 
 static const char* TAG = "wifi";
 
@@ -42,21 +43,25 @@ static void espnow_recv_cb(const esp_now_recv_info_t *recv_info, const uint8_t *
 
 }
 
-void espnow_init(const config_data_t *cfg)
+void espnow_deinit(wifi_t *wifi)
 {
-    esp_now_peer_info_t peer = {0};
+    esp_now_del_peer(wifi->peer.peer_addr);
+    ESP_ERROR_CHECK(esp_now_deinit() );
+}
 
+void espnow_init(wifi_t *wifi, const config_data_t *cfg)
+{
     if (!cfg_has_elrs_uid(cfg))
         return;
     /* Initialize ESPNOW and register sending and receiving callback function. */
     ESP_ERROR_CHECK( esp_now_init() );
-    ESP_ERROR_CHECK( esp_now_register_send_cb(espnow_send_cb) );
-    ESP_ERROR_CHECK( esp_now_register_recv_cb(espnow_recv_cb) );
+//    ESP_ERROR_CHECK( esp_now_register_send_cb(espnow_send_cb) );
+//    ESP_ERROR_CHECK( esp_now_register_recv_cb(espnow_recv_cb) );
 
-    peer.channel = 0;
-    peer.encrypt = false;
-    memcpy(peer.peer_addr, cfg->elrs_uid, ESP_NOW_ETH_ALEN);
-    ESP_ERROR_CHECK( esp_now_add_peer(&peer) );
+    wifi->peer.channel = 0;
+    wifi->peer.encrypt = false;
+    memcpy(wifi->peer.peer_addr, cfg->elrs_uid, ESP_NOW_ETH_ALEN);
+    ESP_ERROR_CHECK( esp_now_add_peer(&wifi->peer) );
 }
 
 static void wifi_event_handler(void* arg, esp_event_base_t event_base,
@@ -116,7 +121,98 @@ void wifi_init_softap(const config_data_t *cfg)
     ESP_LOGI(TAG, "wifi_init_softap finished. SSID:%s password:%s channel:%d",
              wifi_config.ap.ssid, wifi_config.ap.password, wifi_config.ap.channel);
 
-    espnow_init(cfg);
+//    espnow_init(wifi, cfg);
 }
 
+
+void wifi_setup(wifi_t *wifi, const config_data_t *cfg)
+{
+    ESP_LOGI(TAG, "wifi_setup: state: %d", wifi->state);
+
+    if (wifi->state == WIFI_NONE) {
+
+        wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+        ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+        esp_wifi_set_mode(WIFI_MODE_NULL);
+        ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT,
+                                                            ESP_EVENT_ANY_ID,
+                                                            &wifi_event_handler,
+                                                            NULL,
+                                                            NULL));
+        esp_wifi_set_storage(WIFI_STORAGE_RAM);
+
+        esp_netif_create_default_wifi_ap();
+        esp_netif_create_default_wifi_sta();
+
+    }  else if (wifi->state == WIFI_AP) {
+        espnow_deinit(wifi);
+        ESP_ERROR_CHECK(esp_wifi_stop());
+        ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_NULL));
+
+    } else if (wifi->state == WIFI_STA) {
+        espnow_deinit(wifi);
+        ESP_ERROR_CHECK(esp_wifi_disconnect());
+        ESP_ERROR_CHECK(esp_wifi_stop());
+        ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_NULL));
+
+    } else {
+        ESP_ERROR_CHECK(ESP_ERR_NO_MEM);
+    }
+
+    ESP_LOGI(TAG, "do ELRS");
+
+    if (cfg_has_elrs_uid(cfg)) {
+        ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+        esp_wifi_set_mac(WIFI_IF_STA, cfg->elrs_uid);
+    }
+
+    if (cfg->wifi_mode == CFG_WIFI_MODE_AP) {
+        wifi->state = WIFI_AP;
+
+        ESP_LOGI(TAG, "configure AP");
+        wifi_config_t wifi_config = {
+            .ap = {
+                .max_connection = 8,
+                .authmode = WIFI_AUTH_WPA2_PSK,
+            },
+        };
+
+        strcpy((char*)wifi_config.ap.ssid, cfg->ssid);
+        wifi_config.ap.ssid_len = strlen(cfg->ssid);
+
+        if (strlen(cfg->passphrase) == 0) {
+            wifi_config.ap.authmode = WIFI_AUTH_OPEN;
+        } else {
+            strcpy((char*)wifi_config.ap.password, cfg->passphrase);
+        }
+
+        ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
+        ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
+        ESP_ERROR_CHECK(esp_wifi_start());
+
+        ESP_LOGI(TAG, "wifi_init_softap finished. SSID:%s password:%s channel:%d",
+                 wifi_config.ap.ssid, wifi_config.ap.password, wifi_config.ap.channel);
+
+
+    } else {
+        wifi->state = WIFI_STA;
+
+        wifi_config_t wifi_config = {
+            .sta = {
+                .threshold.authmode = WIFI_AUTH_OPEN,
+            },
+        };
+        strcpy((char*)wifi_config.sta.ssid, cfg->ssid);
+        if (strlen(cfg->passphrase) > 0) {
+            strcpy((char*)wifi_config.sta.password, cfg->passphrase);
+        }
+        ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA) );
+        ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config) );
+        ESP_ERROR_CHECK(esp_wifi_start() );
+        esp_wifi_connect();
+
+    }
+
+    espnow_init(wifi, cfg);
+}
 

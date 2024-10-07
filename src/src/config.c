@@ -207,7 +207,7 @@ void cfg_dump(struct config * cfg)
     for(; cm->name != NULL; cm++) {
         if (cm->type == UINT16) {
             uint16_t eeprom_value = *(uint16_t*)((unsigned char*)eeprom + cm->offset);
-            uint16_t running_value = *(uint16_t*)((unsigned char*)eeprom + cm->offset);
+            uint16_t running_value = *(uint16_t*)((unsigned char*)running + cm->offset);
 
             printf("  %s: %d", cm->name, eeprom_value);
             if (eeprom_value != running_value)
@@ -230,7 +230,7 @@ void cfg_dump(struct config * cfg)
             const char *r = (char*)running + cm->offset;
 
             printf("  %s: '%s'", cm->name, e);
-            if (strcmp(e,r) != 0)
+            if (memcmp(e,r, cm->size) != 0)
                 printf(" [!= '%s']", r);
             printf("\n");
 

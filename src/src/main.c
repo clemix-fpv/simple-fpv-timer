@@ -207,7 +207,8 @@ void app_main() {
 
     ESP_ERROR_CHECK(cfg_load(&ctx.cfg));
     cfg_dump(&ctx.cfg);
-    wifi_init_softap(&ctx.cfg.eeprom);
+    wifi_setup(&ctx.wifi, &ctx.cfg.eeprom);
+    sft_init(&ctx);
 
     captdnsInit();
     ESP_ERROR_CHECK(gui_start(&ctx));

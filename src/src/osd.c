@@ -31,7 +31,7 @@ void osd_set_format(osd_t* osd, const char *rformat)
     snprintf(osd->format, sizeof(osd->format), "%s", rformat);
 }
 
-void dump_pkt(uint8_t *buf, uint8_t len)
+static void dump_pkt(uint8_t *buf, uint8_t len)
 {
     uint8_t i;
 

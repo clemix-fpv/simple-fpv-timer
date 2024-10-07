@@ -24,6 +24,7 @@ static char tmp2_buf64[64];
 
 static esp_err_t get_root_handler(httpd_req_t *req)
 {
+    ctx_t *ctx = (ctx_t*) req->user_ctx;
     char buf[64];
     char host[32];
     char addr_buf[16];
@@ -33,7 +34,11 @@ static esp_err_t get_root_handler(httpd_req_t *req)
         host[0] = 0;
     }
 
-    esp_netif_get_ip_info(esp_netif_get_handle_from_ifkey("WIFI_AP_DEF"), &ip_info);
+    if (ctx->wifi.state == WIFI_AP)
+        esp_netif_get_ip_info(esp_netif_get_handle_from_ifkey("WIFI_AP_DEF"), &ip_info);
+    else
+        esp_netif_get_ip_info(esp_netif_get_handle_from_ifkey("WIFI_STA_DEF"), &ip_info);
+
     esp_ip4addr_ntoa(&ip_info.ip, addr_buf, sizeof(addr_buf));
 
     /* say 404 if it was already redirected */
@@ -439,7 +444,7 @@ esp_err_t gui_start(ctx_t *ctx)
         .uri      = "*",
         .method   = HTTP_GET,
         .handler  = get_root_handler,
-        .user_ctx = NULL
+        .user_ctx = (void*) ctx
     };
     httpd_register_uri_handler(ctx->gui, &uri_handler);
 

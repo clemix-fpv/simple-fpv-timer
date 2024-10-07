@@ -7,6 +7,7 @@
 #include <esp_http_server.h>
 #include <stdbool.h>
 #include "rx5808.h"
+#include "wifi.h"
 #include "config.h"
 #include "osd.h"
 
@@ -67,9 +68,12 @@ typedef struct {
     rx5808_t rx5808;
     osd_t osd;
 
+    wifi_t wifi;
     lap_counter_t lc;
 } ctx_t;
 
+
+void sft_init(ctx_t *ctx);
 
 sft_millis_t sft_millis();
 bool sft_encode_lapcounter(lap_counter_t *lc, json_writer_t *jw);

@@ -6,6 +6,9 @@
 #include "esp_log.h"
 #include <esp_timer.h>
 #include <esp_netif.h>
+#include <esp_http_client.h>
+#include <esp_netif_ip_addr.h>
+#include "lwip/def.h"
 #include "osd.h"
 
 const char * TAG = "SFT";
@@ -208,6 +211,20 @@ void sft_on_drone_passed(ctx_t *ctx, int rssi, sft_millis_t abs_time_ms)
     }
 }
 
+static void dump_pkt(uint8_t *buf, uint8_t len)
+{
+    uint8_t i;
+
+    printf("Buffer len: %d\n", len);
+    for (i=0; i < len; i++) {
+        if (i > 0 && (i % 8) == 0) {
+            printf("\n");
+        }
+        printf("%02hhx ", buf[i]);
+    }
+    printf("\n");
+}
+
 bool sft_update_settings(ctx_t *ctx)
 {
     lap_counter_t *lc = &ctx->lc;
@@ -228,11 +245,20 @@ bool sft_update_settings(ctx_t *ctx)
         return true;
     }
 
+
     if (cfg_differ_str(cfg, player_name)) {
         snprintf(lc->players[0].name, sizeof(lc->players[0].name),
              "%s", ctx->cfg.eeprom.player_name);
         cfg_set_running_str(cfg, player_name);
     }
+
+    cfg_set_running_str(cfg, magic);
+    cfg_set_running(cfg, rssi_peak);
+    cfg_set_running(cfg, rssi_filter);
+    cfg_set_running(cfg, rssi_offset_enter);
+    cfg_set_running(cfg, rssi_offset_leave);
+    cfg_set_running(cfg, calib_max_lap_count);
+    cfg_set_running(cfg, calib_min_rssi_peak);
 
     if (cfg_differ(cfg, freq)) {
         rx5808_set_channel(&ctx->rx5808, cfg->eeprom.freq);
@@ -254,10 +280,84 @@ bool sft_update_settings(ctx_t *ctx)
         cfg_set_running(cfg, osd_y);
     }
 
+    if (cfg_differ(cfg, elrs_uid) || cfg_differ(cfg, wifi_mode) ||
+        cfg_differ(cfg, passphrase) || cfg_differ(cfg, ssid)) {
+
+        wifi_setup(&ctx->wifi, &ctx->cfg.eeprom);
+
+        cfg_set_running_str(cfg, elrs_uid);
+        cfg_set_running(cfg, wifi_mode);
+        cfg_set_running_str(cfg, passphrase);
+        cfg_set_running_str(cfg, ssid);
+    }
+
     if (cfg_changed(cfg)) {
         ESP_LOGI(TAG, "%s -- ERROR not all settings applied!", __func__);
         cfg_dump(cfg);
+        dump_pkt((uint8_t*)&cfg->eeprom, sizeof(cfg->eeprom));
+        dump_pkt((uint8_t*)&cfg->running, sizeof(cfg->running));
         return false;
     }
     return true;
+}
+
+
+/**
+ * This function get's called, once the station connects to a AP
+ * and a IP address was assigned!
+ */
+void sft_register_me(ctx_t *ctx, ip4_addr_t *server)
+{
+    static char url[64];
+    static char json[64];
+    static json_writer_t jw;
+    esp_err_t err;
+
+    jw_init(&jw, json, sizeof(json));
+
+    snprintf(url, sizeof(url), "http://"IPSTR"/api/v1/player/connect", IP2STR(server));
+    jw_object(&jw){
+        jw_kv_str(&jw, "player", ctx->cfg.eeprom.player_name);
+    }
+
+    esp_http_client_config_t cfg = {
+        .url = url,
+        .method = HTTP_METHOD_POST,
+    };
+    esp_http_client_handle_t client = esp_http_client_init(&cfg);
+
+    /*esp_http_client_set_url(client, url);*/
+    /*esp_http_client_set_method(client, HTTP_METHOD_POST);*/
+    esp_http_client_set_header(client, "Content-Type", "application/json");
+    esp_http_client_set_post_field(client, json, strlen(json));
+    err = esp_http_client_perform(client);
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "HTTP POST Status = %d, content_length = %"PRId64,
+                esp_http_client_get_status_code(client),
+                esp_http_client_get_content_length(client));
+    } else {
+        ESP_LOGE(TAG, "HTTP POST request failed: %s", esp_err_to_name(err));
+    }
+}
+
+void ip_event_handler(void *ctx, esp_event_base_t event_base,
+                      int32_t event_id, void *event_data)
+{
+    if (event_id == IP_EVENT_STA_GOT_IP) {
+        ip_event_got_ip_t *ip = (ip_event_got_ip_t*) event_data;
+        ip4_addr_t addr = {.addr = ip->ip_info.gw.addr};
+
+        ESP_LOGI(TAG, "STA got IP gw:" IPSTR, IP2STR(&ip->ip_info.gw));
+        sft_register_me(ctx, &addr);
+
+    } else {
+        ESP_LOGI(TAG, "Got event: %ld", event_id);
+    }
+}
+
+void
+sft_init(ctx_t *ctx)
+{
+    esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP,
+                                   ip_event_handler, ctx);
 }
