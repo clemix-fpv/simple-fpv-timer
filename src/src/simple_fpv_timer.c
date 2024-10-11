@@ -11,6 +11,8 @@
 #include "lwip/def.h"
 #include "osd.h"
 
+ESP_EVENT_DEFINE_BASE(SFT_EVENT);
+
 const char * TAG = "SFT";
 
 sft_millis_t sft_millis()
@@ -355,9 +357,12 @@ void ip_event_handler(void *ctx, esp_event_base_t event_base,
     }
 }
 
-void
-sft_init(ctx_t *ctx)
+void sft_event_handler(void* handler_arg, esp_event_base_t base, int32_t id, void* event_data)
 {
-    esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP,
-                                   ip_event_handler, ctx);
+
+}
+
+void sft_init(ctx_t *ctx)
+{
+    esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, ip_event_handler, ctx);
 }

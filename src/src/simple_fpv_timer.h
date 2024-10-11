@@ -24,6 +24,20 @@
 #define SFT_MILLIS_MAX  UINT64_MAX
 typedef uint64_t sft_millis_t;
 
+typedef enum {
+    SFT_EVENT_DRONE_PASSED,
+    SFT_EVENT_DRONE_ENTER,
+    SFT_EVENT_DRONE_LEAVE,
+} sft_event_t;
+
+typedef struct {
+    sft_millis_t abs_time_ms;
+    int rssi;
+} sft_event_drone_passed_t;
+
+ESP_EVENT_DECLARE_BASE(SFT_EVENT);
+
+
 typedef struct lap_s {
     int id;
     int rssi;
