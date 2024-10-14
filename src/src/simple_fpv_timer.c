@@ -15,6 +15,8 @@ ESP_EVENT_DEFINE_BASE(SFT_EVENT);
 
 const char * TAG = "SFT";
 
+void sft_send_new_lap(ctx_t *ctx, lap_t *lap);
+
 sft_millis_t sft_millis()
 {
     return esp_timer_get_time() / 1000;
@@ -198,6 +200,9 @@ void sft_on_drone_passed(ctx_t *ctx, int rssi, sft_millis_t abs_time_ms)
                                                abs_time_ms - last_lap_time,
                                                abs_time_ms);
 
+            if (ctx->wifi.state == WIFI_STA) {
+                sft_send_new_lap(ctx, lap);
+            }
             ESP_LOGI(TAG, "LAP[%d]: %llums rssi:%d", lap->id, lap->duration_ms, lap->rssi);
             if (cfg_has_elrs_uid(&cfg->eeprom)) {
 
@@ -247,6 +252,10 @@ bool sft_update_settings(ctx_t *ctx)
         return true;
     }
 
+    if (cfg_differ(cfg, rssi_peak)) {
+        sft_reset_rssi_peak(ctx, cfg->eeprom.rssi_peak);
+        cfg_set_running(cfg, rssi_peak);
+    }
 
     if (cfg_differ_str(cfg, player_name)) {
         snprintf(lc->players[0].name, sizeof(lc->players[0].name),
@@ -342,11 +351,53 @@ void sft_register_me(ctx_t *ctx, ip4_addr_t *server)
     }
 }
 
-void ip_event_handler(void *ctx, esp_event_base_t event_base,
+/**
+ *
+ */
+void sft_send_new_lap(ctx_t *ctx, lap_t *lap)
+{
+    static char url[64];
+    static char json[64];
+    static json_writer_t jw;
+    esp_err_t err;
+
+    jw_init(&jw, json, sizeof(json));
+
+    snprintf(url, sizeof(url),
+             "http://"IPSTR"/api/v1/player/lap",
+             IP2STR(&ctx->server_ipv4));
+    jw_object(&jw){
+        jw_kv_str(&jw, "player", ctx->cfg.eeprom.player_name);
+        jw_kv_int(&jw, "id", lap->id);
+        jw_kv_int(&jw, "rssi", lap->rssi);
+        jw_kv_int(&jw, "duration", lap->duration_ms);
+    }
+
+    esp_http_client_config_t cfg = {
+        .url = url,
+        .method = HTTP_METHOD_POST,
+    };
+    esp_http_client_handle_t client = esp_http_client_init(&cfg);
+
+    esp_http_client_set_header(client, "Content-Type", "application/json");
+    esp_http_client_set_post_field(client, json, strlen(json));
+    err = esp_http_client_perform(client);
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "HTTP POST Status = %d, content_length = %"PRId64,
+                esp_http_client_get_status_code(client),
+                esp_http_client_get_content_length(client));
+    } else {
+        ESP_LOGE(TAG, "HTTP POST request failed: %s", esp_err_to_name(err));
+    }
+}
+
+void ip_event_handler(void *ctxp, esp_event_base_t event_base,
                       int32_t event_id, void *event_data)
 {
+    ctx_t *ctx = (ctx_t*) ctxp;
     if (event_id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t *ip = (ip_event_got_ip_t*) event_data;
+        ctx->server_ipv4.addr = ip->ip_info.gw.addr;
         ip4_addr_t addr = {.addr = ip->ip_info.gw.addr};
 
         ESP_LOGI(TAG, "STA got IP gw:" IPSTR, IP2STR(&ip->ip_info.gw));
@@ -355,6 +406,19 @@ void ip_event_handler(void *ctx, esp_event_base_t event_base,
     } else {
         ESP_LOGI(TAG, "Got event: %ld", event_id);
     }
+}
+
+void sft_reset_rssi_peak(ctx_t *ctx, int rssi_peak) {
+    lap_counter_t *lc = &ctx->lc;
+    config_t *cfg = &ctx->cfg;
+
+    lc->rssi_peak = rssi_peak;
+    lc->rssi_enter = lc->rssi_peak *
+        (cfg->eeprom.rssi_offset_enter / 100.0f);
+    lc->rssi_leave = lc->rssi_peak *
+        (cfg->eeprom.rssi_offset_leave / 100.0f);
+    ESP_LOGI(TAG, "NEW rssi-PEAK: %d enter:%d leave:%d",
+                    lc->rssi_peak, lc->rssi_enter, lc->rssi_leave);
 }
 
 void sft_event_handler(void* handler_arg, esp_event_base_t base, int32_t id, void* event_data)

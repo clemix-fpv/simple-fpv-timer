@@ -134,17 +134,15 @@ int process_rssi(int64_t over_shoot, void *user_data)
     if( lc->in_calib_mode) {
         if (lc->rssi_smoothed > lc->rssi_peak &&
                 lc->rssi_smoothed > cfg->running.calib_min_rssi_peak) {
-            lc->rssi_peak = lc->rssi_smoothed;
-            lc->rssi_enter = lc->rssi_peak * (cfg->eeprom.rssi_offset_enter / 100.0f);
-            lc->rssi_leave = lc->rssi_peak * (cfg->eeprom.rssi_offset_leave / 100.0f);
-            ESP_LOGI(TAG, "NEW rssi-PEAK: %d enter:%d leave:%d",
-                    lc->rssi_peak, lc->rssi_enter, lc->rssi_leave);
+            sft_reset_rssi_peak(ctx, lc->rssi_smoothed);
 
             lc->drone_in_gate = false;
-            timer_start(T_BLOCK_ENTER, 1000, NULL, NULL);
+            timer_start(T_BLOCK_ENTER, 1000000, NULL, NULL);
         }
     }
 
+    /*ESP_LOGI(TAG, "rssi %d  %d %d", lc->rssi_smoothed,*/
+    /*                lc->rssi_enter , lc->rssi_leave);*/
     if (!lc->rssi_enter || !lc->rssi_leave)
         return TIMER_RESTART;
 
@@ -152,7 +150,7 @@ int process_rssi(int64_t over_shoot, void *user_data)
             timer_over(T_BLOCK_ENTER, NULL) &&
             !lc->drone_in_gate) {
         ESP_LOGI(TAG, "Drone enter gate! rssi: %d", lc->rssi_smoothed);
-        timer_start(T_BLOCK_ENTER, 2000, NULL, NULL);
+        timer_start(T_BLOCK_ENTER, 2000000, NULL, NULL);
         lc->drone_in_gate = true;
         lc->in_gate_peak_rssi = lc->rssi_smoothed;
         lc->in_gate_peak_millis = sft_millis();
@@ -161,8 +159,9 @@ int process_rssi(int64_t over_shoot, void *user_data)
             timer_over(T_BLOCK_ENTER, NULL) &&
             lc->rssi_leave > lc->rssi_smoothed) {
         lc->drone_in_gate = false;
-        sft_on_drone_passed(ctx, lc->in_gate_peak_rssi, lc->in_gate_peak_millis);
-        timer_start(T_BLOCK_ENTER, 2000, NULL, NULL);
+        sft_on_drone_passed(ctx, lc->in_gate_peak_rssi,
+                            lc->in_gate_peak_millis);
+        timer_start(T_BLOCK_ENTER, 2000000, NULL, NULL);
 
     } else if (lc->drone_in_gate) {
         if (lc->in_gate_peak_rssi < lc->rssi_smoothed) {
@@ -207,6 +206,7 @@ void app_main() {
 
     ESP_ERROR_CHECK(cfg_load(&ctx.cfg));
     cfg_dump(&ctx.cfg);
+    /*ctx.cfg.eeprom.wifi_mode = 0;*/
     wifi_setup(&ctx.wifi, &ctx.cfg.eeprom);
     sft_init(&ctx);
 

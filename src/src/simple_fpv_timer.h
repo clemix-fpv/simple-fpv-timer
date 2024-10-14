@@ -84,6 +84,8 @@ typedef struct {
 
     wifi_t wifi;
     lap_counter_t lc;
+
+    ip4_addr_t server_ipv4;
 } ctx_t;
 
 
@@ -96,3 +98,4 @@ player_t* sft_player_get_or_create(lap_counter_t *lc, ip4_addr_t ip4, const char
 lap_t* sft_player_add_lap(player_t *player, int id, int rssi, sft_millis_t duration, sft_millis_t abs_time);
 void sft_on_drone_passed(ctx_t *ctx, int rssi, sft_millis_t abs_time_ms);
 bool sft_update_settings(ctx_t *ctx);
+void sft_reset_rssi_peak(ctx_t *ctx, int rssi_peak);
