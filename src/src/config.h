@@ -64,6 +64,8 @@ esp_err_t cfg_save(struct config*);
 esp_err_t cfg_load(struct config*);
 void cfg_eeprom_to_running(struct config*);
 
+void cfg_generate_random_ssid(char *buf, size_t len);
+
 bool cfg_has_elrs_uid(const config_data_t *cfgdata);
 
 bool cfg_changed(struct config*);

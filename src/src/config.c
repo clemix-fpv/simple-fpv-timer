@@ -11,6 +11,7 @@
 #include "string.h"
 #include "esp_log.h"
 #include "json.h"
+#include "esp_random.h"
 
 static const char* TAG = "config";
 #define CFG_NVS_KEY "sft-config"
@@ -82,7 +83,6 @@ static void initialize_nvs(void)
 
 static void cfg_data_init(struct config_data *eeprom)
 {
-    srand(time(NULL));
     memset(eeprom, 0, sizeof(*eeprom));
     memcpy(eeprom->magic, CFG_VERSION, 4);
     eeprom->freq = 5658; // R1
@@ -92,12 +92,17 @@ static void cfg_data_init(struct config_data *eeprom)
     eeprom->rssi_offset_leave = 70;
 
     eeprom->wifi_mode = CFG_WIFI_AP;
-    snprintf(eeprom->ssid, sizeof(eeprom->ssid), "simple-fpv-timer-%02X", rand() % 0xff);
+    cfg_generate_random_ssid(eeprom->ssid, sizeof(eeprom->ssid));
 
     eeprom->calib_max_lap_count = 3;
     eeprom->calib_min_rssi_peak = 600;
 
     strcpy(eeprom->osd_format, CFG_DEFAULT_OSD_FORMAT);
+}
+
+void cfg_generate_random_ssid(char *buf, size_t len)
+{
+    snprintf(buf, len, "simple-fpv-timer-%02X", (int)(esp_random() % 0xff));
 }
 
 esp_err_t cfg_load(struct config *cfg)

@@ -14,6 +14,7 @@
 #include "json.h"
 #include "osd.h"
 #include "simple_fpv_timer.h"
+#include "gui.h"
 
 static const char * TAG = "http";
 static char json_buffer[1024*4];
@@ -344,7 +345,7 @@ static esp_err_t api_v1_post_handler(httpd_req_t *req)
         if(j_parse(jr, json_buffer, len)) {
             json_t lap;
             int id, rssi;
-            sft_millis_t duration;
+            millis_t duration;
             ip4_addr_t ip4 = {0};
 
             if (get_remote_ip4(req, &ip4) == ESP_OK &&
@@ -355,7 +356,7 @@ static esp_err_t api_v1_post_handler(httpd_req_t *req)
                 j_find_uint64(&lap, "duration", &duration)
             ) {
                 if (sft_player_add_lap(sft_player_get_or_create(lc, ip4, NULL),
-                                       id, rssi, duration, sft_millis()))
+                                       id, rssi, duration, get_millis()))
                     request_send_ok(req);
                 else
                     request_send_error(req, "Failed to add players lap");
@@ -375,6 +376,28 @@ static esp_err_t api_v1_post_handler(httpd_req_t *req)
     }
 
     return ESP_OK;
+}
+
+void sft_event_rssi_update(void* ctx, esp_event_base_t base, int32_t id, void* event_data)
+{
+    sft_event_rssi_update_t *ev = (sft_event_rssi_update_t*) event_data;
+    static json_writer_t jwmem, *jw;
+
+    jw = &jwmem;
+    jw_init(jw, json_buffer, sizeof(json_buffer));
+
+    jw_array(jw) {
+        for (int i = 0; i < ev->cnt; i++) {
+            jw_object(jw) {
+                jw_kv_int(jw, "t", ev->data[i].abs_time_ms);
+                jw_kv_int(jw, "s", ev->data[i].rssi);
+                jw_kv_int(jw, "r", ev->data[i].rssi_raw);
+                jw_kv_int(jw, "i", ev->data[i].drone_in_gate);
+            }
+        }
+    }
+
+    gui_send_all(ctx, json_buffer);
 }
 
 /* Function for starting the webserver */
@@ -448,16 +471,18 @@ esp_err_t gui_start(ctx_t *ctx)
     };
     httpd_register_uri_handler(ctx->gui, &uri_handler);
 
+    esp_event_handler_register(SFT_EVENT, SFT_EVENT_RSSI_UPDATE, sft_event_rssi_update, ctx);
     return ESP_OK;
 }
 
 /* Function for stopping the webserver */
-void gui_stop(ctx_t *ctx)
+esp_err_t gui_stop(ctx_t *ctx)
 {
     if (ctx->gui) {
         /* Stop the httpd server */
         httpd_stop(ctx->gui);
     }
+    return ESP_OK;
 }
 
 

@@ -17,6 +17,7 @@ typedef struct {
     esp_netif_t *netif_ap;
     esp_netif_t *netif_sta;
 
+    bool sta_connected; 	/* will be send to true, on WIFI_STA connected event */
 } wifi_t;
 
 void wifi_setup(wifi_t *wifi, const config_data_t *cfg);

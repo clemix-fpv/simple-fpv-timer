@@ -17,11 +17,6 @@ const char * TAG = "SFT";
 
 void sft_send_new_lap(ctx_t *ctx, lap_t *lap);
 
-sft_millis_t sft_millis()
-{
-    return esp_timer_get_time() / 1000;
-}
-
 bool sft_encode_settings(ctx_t *ctx, json_writer_t *jw)
 {
     jw_object(jw) {
@@ -134,7 +129,7 @@ struct player_s* sft_player_get_or_create(lap_counter_t *lc, ip4_addr_t ip4, con
 }
 
 struct lap_s* sft_player_add_lap(struct player_s *player,
-        int id, int rssi, sft_millis_t duration, sft_millis_t abs_time)
+        int id, int rssi, millis_t duration, millis_t abs_time)
 {
     struct lap_s *lap;
 
@@ -168,11 +163,11 @@ lap_t * sft_player_get_fastes_lap(player_t *p)
     return fastes;
 }
 
-void sft_on_drone_passed(ctx_t *ctx, int rssi, sft_millis_t abs_time_ms)
+void sft_on_drone_passed(ctx_t *ctx, int rssi, millis_t abs_time_ms)
 {
     lap_counter_t *lc = &ctx->lc;
     config_t *cfg = &ctx->cfg;
-    static sft_millis_t last_lap_time = 0;
+    static millis_t last_lap_time = 0;
 
     ESP_LOGI(TAG, "Drone passed!");
 
@@ -264,17 +259,15 @@ bool sft_update_settings(ctx_t *ctx)
     }
 
     cfg_set_running_str(cfg, magic);
+
+    /* will be handled in task_rssi() event handler */
     cfg_set_running(cfg, rssi_peak);
     cfg_set_running(cfg, rssi_filter);
     cfg_set_running(cfg, rssi_offset_enter);
     cfg_set_running(cfg, rssi_offset_leave);
     cfg_set_running(cfg, calib_max_lap_count);
     cfg_set_running(cfg, calib_min_rssi_peak);
-
-    if (cfg_differ(cfg, freq)) {
-        rx5808_set_channel(&ctx->rx5808, cfg->eeprom.freq);
-        cfg_set_running(cfg, freq);
-    }
+    cfg_set_running(cfg, freq);
 
     if (cfg_differ(cfg, osd_format)) {
         osd_set_format(&ctx->osd, cfg->eeprom.osd_format);
@@ -301,6 +294,11 @@ bool sft_update_settings(ctx_t *ctx)
         cfg_set_running_str(cfg, passphrase);
         cfg_set_running_str(cfg, ssid);
     }
+
+    sft_event_cfg_changed_t ev = { .cfg = cfg->running };
+    ESP_ERROR_CHECK(
+        esp_event_post(SFT_EVENT, SFT_EVENT_CFG_CHANGED,
+                       &ev, sizeof(ev), pdMS_TO_TICKS(500)));
 
     if (cfg_changed(cfg)) {
         ESP_LOGI(TAG, "%s -- ERROR not all settings applied!", __func__);
@@ -426,7 +424,14 @@ void sft_event_handler(void* handler_arg, esp_event_base_t base, int32_t id, voi
 
 }
 
+void sft_event_drone_passed(void* ctx, esp_event_base_t base, int32_t id, void* event_data)
+{
+    sft_event_drone_passed_t *ev = (sft_event_drone_passed_t*)event_data;
+    sft_on_drone_passed(ctx, ev->rssi, ev->abs_time_ms);
+}
+
 void sft_init(ctx_t *ctx)
 {
     esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, ip_event_handler, ctx);
+    esp_event_handler_register(SFT_EVENT, SFT_EVENT_DRONE_PASSED, sft_event_drone_passed, ctx);
 }

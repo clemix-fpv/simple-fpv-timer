@@ -27,7 +27,9 @@ function onMessage(event) {
     try {
         json = JSON.parse(event.data);
         on_rssi_update(json);
-        graph_update(json);
+        for (const e of json) {
+            graph_update(e);
+        }
 
     } catch (e) {
         return console.error(e); // error in the above string (in this case, yes)!
@@ -39,6 +41,7 @@ function on_rssi_update(j)
     let dbg = $('#debug');
     $('#dbg_rssi_card').remove();
     t = $('<table>')
+    j = j[j.length - 1];
     for (let key in j){
         let value = j[key];
         t.append(`<tr><td>${key}</td><td>${value}</td></tr>`);
