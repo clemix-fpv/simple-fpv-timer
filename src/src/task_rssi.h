@@ -31,6 +31,7 @@ typedef struct {
     int calibration_max_laps;
 
     sft_event_rssi_update_t rssi_update_ev;
+    millis_t collect_next;
 
 } task_rssi_t;
 

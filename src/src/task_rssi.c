@@ -121,34 +121,46 @@ void task_rssi_process_rssi(task_rssi_t *tsk, sft_timer_t *gate_blocked, int rss
 
 void task_rssi_collect_rssi(task_rssi_t *tsk, millis_t time)
 {
-    #define TIME_SLOT 300
+    #define TIME_SLOT 300    /* Send out collected data after at 300s */
+    #define TIME_OFFSET 100  /* only every 100ms one datapoint for displaying */
 
     sft_event_rssi_update_t *ev = &tsk->rssi_update_ev;
-    if (ev->cnt < SFT_RSSI_UPDATE_MAX) {
-        int idx = ev->cnt++;
+
+    int idx = ev->cnt > 0 ? ev->cnt -1 : 0;
+
+    if (time >= tsk->collect_next ||
+        ev->data[idx].drone_in_gate != tsk->drone_in_gate) {
+
+        if (ev->cnt +1 >= SFT_RSSI_UPDATE_MAX ||
+            (ev->cnt > 0 &&
+             ev->data[idx].abs_time_ms - ev->data[0].abs_time_ms >= TIME_SLOT)){
+
+            ESP_ERROR_CHECK(
+                esp_event_post(SFT_EVENT, SFT_EVENT_RSSI_UPDATE,
+                               ev, sizeof(*ev), pdMS_TO_TICKS(100)));
+            ev->cnt = 0;
+        }
+        idx = ev->cnt++;
         ev->data[idx].abs_time_ms = time;
         ev->data[idx].rssi = tsk->rssi_smoothed;
         ev->data[idx].rssi_raw = tsk->rssi_raw;
         ev->data[idx].drone_in_gate = tsk->drone_in_gate;
+
+        tsk->collect_next = time + TIME_OFFSET;
+
+    } else if (ev->data[idx].rssi < tsk->rssi_smoothed) {
+        ev->data[idx].rssi = tsk->rssi_smoothed;
+        ev->data[idx].rssi_raw = tsk->rssi_raw;
     }
-
-    if (ev->cnt >= SFT_RSSI_UPDATE_MAX ||
-        (ev->cnt > 0 &&
-         ev->data[ev->cnt - 1].abs_time_ms - ev->data[0].abs_time_ms >= TIME_SLOT)){
-
-        ESP_ERROR_CHECK(
-            esp_event_post(SFT_EVENT, SFT_EVENT_RSSI_UPDATE,
-                           ev, sizeof(*ev), pdMS_TO_TICKS(100)));
-        ev->cnt = 0;
-    }
-
-}
+  }
 
 void task_rssi( void * priv )
 {
     task_rssi_t *tsk = (task_rssi_t*) priv;
     sft_timer_t gate_blocked;
     sft_timer_t loop;
+    sft_timer_t s1;
+    uint32_t read_cnt = 0;
     millis_t ms;
     int adc_raw = 0;
     int voltage = 0;
@@ -163,9 +175,11 @@ void task_rssi( void * priv )
     ESP_ERROR_CHECK(esp_event_handler_instance_register(SFT_EVENT, SFT_EVENT_CFG_CHANGED,
                                                         task_rssi_on_update_cfg,
                                                         tsk, NULL));
+    timer_start(&s1, 1000, NULL, NULL);
     for(;;) {
-        timer_start(&loop, 50, NULL, NULL);
+        timer_start(&loop, 5, NULL, NULL);
 
+        read_cnt++;
         rx5808_read_rssi(&tsk->rx5808, &adc_raw, &voltage);
         ms = get_millis();
         task_rssi_process_rssi(tsk, &gate_blocked, voltage);
@@ -174,6 +188,14 @@ void task_rssi( void * priv )
         ms = get_millis();
         if (loop.end > ms)
             vTaskDelay(pdMS_TO_TICKS(loop.end - ms));
+
+        if (timer_over(&s1, &ms)) {
+            ms = 1000 - ms;
+            printf("rx5808 rssi reads %lu/%llums (%0.2f) millis:%llu\n",
+                   read_cnt, ms, (float)read_cnt/ms, get_millis());
+            read_cnt=0;
+            timer_start(&s1, 1000, NULL, NULL);
+        }
     }
 }
 
