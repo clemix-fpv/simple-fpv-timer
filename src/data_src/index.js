@@ -3,6 +3,34 @@
 var tab_name = "laps";
 var gateway = `ws://${window.location.hostname}:${window.location.port}/ws/rssi`;
 var websocket;
+var infosocket;
+
+function init_infosocket() {
+    var gateway = `ws://${window.location.hostname}:${window.location.port}/ws/info`;
+    console.log('Trying to open a WebSocket connection...' + gateway);
+    websocket = new WebSocket(gateway);
+    websocket.onopen    = onInfoOpen;
+    websocket.onclose   = onInfoClose;
+    websocket.onmessage = onInfoMessage; // <-- add this line
+}
+
+function onInfoOpen(event) {
+}
+
+function onInfoClose(event) {
+    setTimeout(init_infosocket, 1000);
+}
+
+function onInfoMessage(event) {
+    try {
+        json = JSON.parse(event.data);
+        console.debug(json);
+    } catch (e) {
+        return console.error(e); // error in the above string (in this case, yes)!
+    }
+}
+
+
 
 function init_websocket() {
     console.log('Trying to open a WebSocket connection...' + gateway);
@@ -12,8 +40,17 @@ function init_websocket() {
     websocket.onmessage = onMessage; // <-- add this line
 }
 
+function send_data() {
+    const msg =  {
+        type: "HELLO"
+    };
+    websocket.send(JSON.stringify(msg));
+}
+
 function onOpen(event) {
     on_rssi_update({"CONNECTION": "OPEN"});
+    setTimeout(send_data, 2000);
+
 }
 
 function onClose(event) {

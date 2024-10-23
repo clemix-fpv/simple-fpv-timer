@@ -6,6 +6,7 @@
 #include <esp_http_server.h>
 #include <esp_log.h>
 
+#include "esp_err.h"
 #include "esp_netif.h"
 #include "esp_netif_types.h"
 #include "lwip/ip_addr.h"
@@ -18,10 +19,40 @@
 
 static const char * TAG = "http";
 static char json_buffer[1024*4];
+static json_t json_parser;
 static jsmntok_t jsmn_tokens[128];
 static char tmp_buf64[64];
 static char tmp2_buf64[64];
 
+typedef struct {
+    bool will_rssi_update;
+} session_ctx_t;
+
+void session_ctx_free(void *s)
+{
+    free(s);
+}
+
+/* This function is NOT thread safe and use the
+ * static json_buffer to parse.
+ * The parameter length give the max string length
+ * in json_buffer. If < 0 is given, then strlen()
+ * will be used.
+ *
+ * USE THIS FUNCTION WITH CARE!!!!!
+ * You can only parse one JSON object at a time!
+ */
+static json_t* json_parse_static_buffer(int length)
+{
+    j_init(&json_parser, jsmn_tokens, 128);
+
+    json_buffer[sizeof(json_buffer) -1 ] = 0;
+    if (length < 0) {
+        length = strlen(json_buffer);
+    }
+
+    return j_parse(&json_parser, json_buffer, length);
+}
 
 static esp_err_t get_root_handler(httpd_req_t *req)
 {
@@ -81,6 +112,14 @@ static esp_err_t get_static_handler(httpd_req_t *req)
 static esp_err_t ws_rssi_handler(httpd_req_t *req)
 {
     ESP_LOGI(TAG, "ENTER: %s", __func__);
+
+    if (! req->sess_ctx) {
+        req->sess_ctx = malloc(sizeof(session_ctx_t));
+        req->free_ctx = session_ctx_free;
+    } else {
+        ESP_LOGI(TAG, "session: %p", req->sess_ctx);
+    }
+
     if (req->method == HTTP_GET) {
         int fd = httpd_req_to_sockfd(req);
         httpd_ws_client_info_t client_info = httpd_ws_get_fd_info(req->handle, fd);
@@ -89,6 +128,23 @@ static esp_err_t ws_rssi_handler(httpd_req_t *req)
         return ESP_OK;
     }
 
+    int fd = httpd_req_to_sockfd(req);
+    ESP_LOGI(TAG, "WS::RCV socket: %d", fd);
+    /* Handle received data from websocket */
+    httpd_ws_frame_t ws_pkt;
+    memset(&ws_pkt, 0, sizeof(httpd_ws_frame_t));
+    ws_pkt.type = HTTPD_WS_TYPE_TEXT;
+    ws_pkt.payload = (uint8_t*) json_buffer;
+    if (httpd_ws_recv_frame(req, &ws_pkt, sizeof(json_buffer)) != ESP_OK) {
+        ESP_LOGI(TAG, "FAILED to recv ws pkt!");
+        return ESP_OK;
+    }
+
+    ESP_LOGI(TAG, "Received ws pkt length:%d %.*s", ws_pkt.len, ws_pkt.len, json_buffer);
+    json_t *j = json_parse_static_buffer(ws_pkt.len);
+    if (j_find_str(j, "type", tmp_buf64, sizeof(tmp_buf64)) ){
+        ESP_LOGI(TAG, "Received ws pkt type %s", tmp_buf64);
+    }
     return ESP_OK;
 }
 
@@ -507,6 +563,7 @@ esp_err_t gui_send_all(ctx_t *ctx, const char *msg)
     }
 
     for (int i = 0; i < fds; i++) {
+        /*void *ptr = httpd_sess_get_ctx(ctx->gui, client_fds[i]);*/
         httpd_ws_client_info_t client_info = httpd_ws_get_fd_info(ctx->gui, client_fds[i]);
         if (client_info == HTTPD_WS_CLIENT_WEBSOCKET) {
             httpd_ws_send_frame_async(ctx->gui, client_fds[i], &ws_pkt);
