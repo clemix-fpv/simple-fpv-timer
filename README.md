@@ -1,5 +1,5 @@
 # simple-fpv-timer
-A simple FPV timer based on ESP32 + RX5808. 
+A simple FPV timer based on ESP32 + RX5808.
 It is inspired by https://github.com/qdrk/fpvsim-timer and is using the same hardware setup for now (http://quadrank.huu.la/).
 
 This project is still under development!
@@ -14,11 +14,13 @@ This project is still under development!
  * race view, multiple FPV pilots in one frontend (each pilot needs it's own hardware)
 
 # Installation
+
 This project is build with https://platformio.org/, once you have setup your development environment and your esp32 is connected, run:
 ```
 cd src
-pio run -t uploadfs -e node32s
-pio run -t upload -e node32s
+pio run -t compiledb
+pio run -t upload
+pio device monitor
 ```
 By default the esp32 will run an open AccessPoint and using a SSID like `simple-FPV-timer-XX`, where `XX` is some random generated string.
 Once you have connected to the AP, the captive portal webpage should automatically be opened or use `http://10.0.0.1` as address in your browser.
