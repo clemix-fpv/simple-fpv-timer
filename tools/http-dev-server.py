@@ -142,6 +142,8 @@ class WSHandler(WebsocketHandler):
             leave_time = time.time()
             enter_time = time.time()
 
+            json_data = []
+
             while True:
                 await asyncio.sleep(0.2)
                 if session.is_closed:
@@ -167,13 +169,15 @@ class WSHandler(WebsocketHandler):
                     leave_time = time.time()
                     ctx.status['drone_in_gate'] = False
 
-                v = {
+                json_data.append({
                         't': int(time.time() * 1000),
                         'r': ctx.status['rssi_raw'],
                         's': ctx.status['rssi_smoothed'],
                         'i': ctx.status['drone_in_gate']
-                        }
-                session.send_text(json.dumps(v))
+                        })
+                if (len(json_data) >= 3):
+                    session.send_text(json.dumps(json_data))
+                    json_data = []
         except Exception as e:
             print (e)
             traceback.print_exc()
