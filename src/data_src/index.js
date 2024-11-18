@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0+
 
 var tab_name = "laps";
-var gateway = `ws://${window.location.hostname}:${window.location.port}/ws/rssi`;
+const gateway = `ws://${window.location.hostname}:${window.location.port}/ws/rssi`;
 var websocket;
-var infosocket;
+const ctx =  {
+    config: {},
+};
 
 function init_infosocket() {
     var gateway = `ws://${window.location.hostname}:${window.location.port}/ws/info`;
@@ -24,7 +26,6 @@ function onInfoClose(event) {
 function onInfoMessage(event) {
     try {
         json = JSON.parse(event.data);
-        console.debug(json);
     } catch (e) {
         return console.error(e); // error in the above string (in this case, yes)!
     }
@@ -69,6 +70,7 @@ function onMessage(event) {
         }
 
     } catch (e) {
+        console.error(event.data);
         return console.error(e); // error in the above string (in this case, yes)!
     }
 }
@@ -437,9 +439,10 @@ function update_settings()
         url: '/api/v1/settings'
     })
         .done(function(data) {
+            ctx.config = data.config;
             build_settings(data.config);
         })
-        .error(function(xhr, textStatus) {
+        .fail(function() {
             notify_response("Failed to get settings", xhr);
         });
 }
@@ -661,6 +664,9 @@ let uplot = null;
 let time0 = 0;
 function graph(id)
 {
+    if (uplot)
+        return uplot;
+
     let xs = [1,2,3,4,5,6,7,];
     let vals = [-10,-9,-8,-7];
 
@@ -670,9 +676,12 @@ function graph(id)
     ];
 
     data = [
-        [],
-        [],
-        [],
+        [],  /* time */
+        [],  /* rssi_peak */
+        [],  /* rssi_enter */
+        [],  /* rssi_leave */
+        [],  /* rssi */
+        [],  /* rssi_smooth */
     ];
 
     let e = $('#' + id);
@@ -700,6 +709,18 @@ function graph(id)
                 value: (u, v) => v == null ? null : format_ms_short(v),
             },
             {
+                stroke: "#70dba4",
+                label: "peak",
+            },
+            {
+                stroke: "#dbc270",
+                label: "enter",
+            },
+            {
+                stroke: "#3af51d",
+                label: "leave",
+            },
+            {
                 stroke: "red",
                 label: "rssi",
             },
@@ -708,7 +729,7 @@ function graph(id)
                 label: "rssi-smooth",
             },
         ],
-    };
+          };
 
     uplot = new uPlot(opts, data, document.getElementById(id));
 }
@@ -721,49 +742,75 @@ function graph_update(json)
     let data = uplot._data;
     let timeduration = 10000;
 
+    /* the order of the data is important, as we would like to see the
+     * rssi and rssi-smoothed in foreground */
+    const idx_next_lap = 1 + laps.length;
+    const idx_rssi_peak = 1 + laps.length;
+    const idx_rssi_enter = 2 + laps.length;
+    const idx_rssi_leave = 3 + laps.length;
+    const idx_rssi = 4 + laps.length;
+    const idx_rssi_smooth = 5 + laps.length;
+
     if (time0 == 0)
         time0 = json.t;
 
-    rssi_idx = data.length - 2;
+    t = json.t - time0;
+    data[0].push(t);       /* time value */
+    data[idx_rssi].push(json.r);
+    data[idx_rssi_smooth].push(json.s);
 
+    /* Remove old time data */
+    let older_as = t - timeduration;
+    while(data[0][0] < older_as){
+        data[0].shift();
+        data[idx_rssi].shift();
+        data[idx_rssi_smooth].shift();
+    }
+
+    /* update horizontal lines for RSSI thresholds from configuration */
+    if (ctx.config && ctx.config.rssi_peak && data[0].length > 0) {
+        const rssi_peak = ctx.config.rssi_peak;
+        const rssi_enter = Math.floor(rssi_peak * (ctx.config.rssi_offset_enter / 100));
+        const rssi_leave = Math.floor(rssi_peak * (ctx.config.rssi_offset_leave / 100));
+        len = data[0].length;
+        if (data[idx_rssi_peak].length != len || data[idx_rssi_peak][0] != rssi_peak)
+            data[idx_rssi_peak] = Array(len).fill(rssi_peak);
+        if (data[idx_rssi_enter].length != len || data[idx_rssi_enter][0] != rssi_enter)
+            data[idx_rssi_enter] = Array(len).fill(rssi_enter);
+        if (data[idx_rssi_leave].length != len || data[idx_rssi_leave][0] != rssi_leave)
+            data[idx_rssi_leave] = Array(len).fill(rssi_leave);
+    }
+
+    /* Update collected "drone in gate" events */
     if (json.i){
         collect_rssi.push(json)
     } else {
         if (collect_rssi.length > 10) {
-            c = "rgba("+Math.floor(Math.random() * 255) +","+Math.floor(Math.random() * 255)+","+Math.floor(Math.random() * 255)+", 0.1)"
+
+            c = "rgba("+Math.floor(Math.random() * 255) + "," +
+                        Math.floor(Math.random() * 255) + "," +
+                        Math.floor(Math.random() * 255) + ", 0.1)"
             uplot.addSeries({
                 stroke: c,
 				fill: c,
-                label: "Lap " + rssi_idx
-			}, rssi_idx);
-            data.splice(rssi_idx, 0, [] );
-            laps.push({last_idx: 0, idx: rssi_idx, data: collect_rssi})
+                label: "Lap " + (laps.length + 1),
+			}, idx_next_lap);
+            data.splice(idx_next_lap, 0, [] );
 
-/*            $.each(collect_rssi, function(i,o){
-                data[rssi_idx].push(o.s);
-            });
-            */
+            laps.push({idx: idx_next_lap, data: collect_rssi})
             collect_rssi = new Array();
         }
     }
-
-    t = json.t - time0;
-    data[0].push(t);
-    data[rssi_idx].push(json.r);
-    data[rssi_idx + 1].push(json.s);
-
-    let older_as = t - timeduration;
-    while(data[0][0] < older_as){
-        data[0].shift();
-        data[rssi_idx].shift();
-        data[rssi_idx + 1].shift();
-    }
     $.each(laps, function (i,o){
         let arr = data[o.idx];
+        if (data[0].length == arr.length) return;
+
         let start_idx = Math.floor((data[0].length - o.data.length) / 2);
-        if (o.last_idx == start_idx) return;
-        o.last_idx = start_idx;
-        arr.fill(0,0, start_idx);
+
+        for (let index = 0; index < start_idx; index++) {
+            arr[index] = 0;
+        }
+
         $.each(o.data, function(j,u){
             arr[j+start_idx] = u.r;
         });
@@ -858,7 +905,7 @@ function update_debug()
         .done(function(data) {
             let dbg = $('#debug');
             dbg.empty();
-
+            ctx.config = data.config;
             /* build status table */
             let status_table = $('<table class="table">');
             status_table.append('<thead><tr><th>name</th><th>value</th></tr></thead>');
