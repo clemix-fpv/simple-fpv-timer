@@ -72,7 +72,7 @@ class Player:
     def dumpJson(self):
         return json.dumps(self.json(), indent = 1)
 
-config = { 
+config = {
     "freq": 5917,
     "rssi_peak": 900,
     "rssi_filter": 60,
@@ -119,10 +119,10 @@ class WSHandler(WebsocketHandler):
         """
         "
         " You can get path/headers/path_values/cookies/query_string/query_parameters from request.
-        " 
+        "
         " You should return a tuple means (http_status_code, headers)
         "
-        " If status code in (0, None, 101), the websocket will be connected, or will return the status you return. 
+        " If status code in (0, None, 101), the websocket will be connected, or will return the status you return.
         "
         " All headers will be send to client
         "
@@ -141,6 +141,8 @@ class WSHandler(WebsocketHandler):
             start = time.time()
             leave_time = time.time()
             enter_time = time.time()
+
+            json_data = []
 
             while True:
                 await asyncio.sleep(0.2)
@@ -166,14 +168,16 @@ class WSHandler(WebsocketHandler):
                 if ctx.status['rssi_smoothed'] < ctx.status['rssi_leave'] and ctx.status['drone_in_gate'] and (time.time() - enter_time) > 1 :
                     leave_time = time.time()
                     ctx.status['drone_in_gate'] = False
-                
-                v = {
-                        't': int(time.time() * 1000), 
-                        'r': ctx.status['rssi_raw'], 
+
+                json_data.append({
+                        't': int(time.time() * 1000),
+                        'r': ctx.status['rssi_raw'],
                         's': ctx.status['rssi_smoothed'],
                         'i': ctx.status['drone_in_gate']
-                        }
-                session.send_text(json.dumps(v))
+                        })
+                if (len(json_data) >= 3):
+                    session.send_text(json.dumps(json_data))
+                    json_data = []
         except Exception as e:
             print (e)
             traceback.print_exc()
@@ -181,7 +185,7 @@ class WSHandler(WebsocketHandler):
 
     async def on_open(self, session: WebsocketSession):
         """
-        " 
+        "
         " Will be called when the connection opened.
         "
         """
@@ -227,7 +231,7 @@ class WSHandler(WebsocketHandler):
 
 @route("/api/v1/laps")
 def index():
-    return {"hello": "world"}   
+    return {"hello": "world"}
 
 @route("/api/v1/settings", method=["GET", "POST"])
 def handle_api_v1_settings():
@@ -238,28 +242,54 @@ def handle_api_v1_settings():
     json_data['status']['players'] = [ x.json() for x in ctx.players ]
     return json_data
 
+@request_map("/api/v1/player/lap", method=["POST"])
+def handle_api_v1_player_connect(json=JSONBody()):
+    for p in ctx.players :
+        if p.name == json["player"] :
+            l = json['lap']
+            p.laps.append({
+                'id': l['id'] ,
+                'duration': l['duration'],
+                'abs_time': round(time.time() *1000),
+                'rssi': l['rssi']
+            })
+
+            return {'status':"ok", 'msg':"Lap added!"}
+    return {'status':"failed", 'msg':"Player not found!"}
+
+@request_map("/api/v1/player/connect", method=["POST"])
+def handle_api_v1_player_connect(json=JSONBody()):
+    for p in ctx.players :
+        if p.name == json["player"]:
+            return {'status':"failed", 'msg':"Player added!"}
+    ctx.players.append(Player(json["player"]))
+    return {'status':"ok", 'msg':"Player added!"}
+
+
+
 
 @request_map("/{file}", method="GET")
 def default_static(file = PathValue()):
-    
+
     content_type = {
                 '.html': 'text/html',
                 '.js': 'text/javascript',
                 '.css': 'text/css',
                 '.ogg': 'audio/ogg',
-                '.ico': 'image/x-icon'
+                '.ico': 'image/x-icon',
+                '.svg': 'image/svg+xml',
                 }
 
     root = os.path.dirname(os.path.abspath(__file__))
-    path = Path("{}/data_src".format(os.path.dirname(__file__)))
+    path = Path("{}/../src/data_src".format(os.path.dirname(__file__)))
     res = path / file
-  
+
     return StaticFile(res, "{}; charset=utf-8".format(content_type.get(res.suffix,"text/html")))
 
 
 if __name__ == "__main__":
     ip = "0.0.0.0"
-    port = 8000
+    port = 9090
     names = ["Bob", "Teo", "Karla", "Joe", "Alice", "Fabs", "Foo", "Gerom", "Esta", "Karl Gustav the First"]
     shuffle(names)
 #    logger.set_level("DEBUG")
@@ -267,5 +297,6 @@ if __name__ == "__main__":
     for x in ctx.players[1::]:
         x.ipaddr = "10.0.0.{}".format(randrange(100)+2)
 
-    server.start(port=9090, prefer_coroutine=True)
+    print("Browse to http://localhost:{}".format(port))
+    server.start(port=port, prefer_coroutine=True)
 

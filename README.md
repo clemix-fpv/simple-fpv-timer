@@ -1,6 +1,25 @@
 # simple-fpv-timer
-A simple FPV timer based on ESP32 + RX5808. 
-It is inspired by https://github.com/qdrk/fpvsim-timer and is using the same hardware setup for now (http://quadrank.huu.la/).
+A simple FPV timer based on ESP32 + RX5808.
+It is inspired by https://github.com/qdrk/fpvsim-timer and is using the same hardware setup for now.
+```
+┌───┌───────┬───┐
+│   │ESP 32 │   │                 ┌───────┐  ┌──────┬────────┐
+│   │       │   │              ┌──┤100kOhm├──┤GND   │ RX5808 │
+│   │       │   │              │  └───────┘  │Video └────────┤
+│   │       │   │              │             │A6.5           │
+│   │       │D34├──────────────┴─────────────┤RSSI           │
+│   │       │5V ├────────────────────────────┤VCC            │
+│   └───────┘GND├────────────────────────────┤GND            │
+│               │            ┌───────┐ ┌─────┤CH3            │
+│            D18├────────────┤ 1kOhm ├─┘┌────┤CH2            │
+│               │            └───────┘  │┌───┤CH1            │
+│               │            ┌───────┐  ││   └───────────────┘
+│            D5 ├────────────┤ 1kOhm ├──┘│
+│               │            └───────┘   │
+│     ┌───┐  D23┼────────┐   ┌───────┐   │
+└─────└───┘─────┘        └───┤ 1kOhm ├───┘
+                             └───────┘
+```
 
 This project is still under development!
 
@@ -14,14 +33,16 @@ This project is still under development!
  * race view, multiple FPV pilots in one frontend (each pilot needs it's own hardware)
 
 # Installation
-This project is build with https://platformio.org/, once you have setup your development environment and your esp32 is connected, run:
+
+This project is build with https://platformio.org/ with espidf Framework for ESP32. Once you have setup your development environment and your ESP32 is connected, run:
 ```
 cd src
-pio run -t uploadfs -e node32s
-pio run -t upload -e node32s
+pio run -t menuconfig
+pio run -t upload
+pio device monitor
 ```
 By default the esp32 will run an open AccessPoint and using a SSID like `simple-FPV-timer-XX`, where `XX` is some random generated string.
-Once you have connected to the AP, the captive portal webpage should automatically be opened or use `http://10.0.0.1` as address in your browser.
+After connecting to the AP, the captive portal webpage should automatically be opened otherwise use `http://10.0.0.1` as address in your browser.
 
 # Screenshots
 
