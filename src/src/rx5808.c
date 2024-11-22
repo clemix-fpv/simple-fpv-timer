@@ -156,7 +156,7 @@ esp_err_t rx5808_set_channel(rx5808_t *handle, int freq)
 {
     static spi_transaction_t trans;
 
-    ESP_LOGI(TAG, "set frequency: %d", freq);
+//    ESP_LOGI(TAG, "set frequency: %d", freq);
 
     memset(&trans, 0, sizeof(spi_transaction_t));
     trans.flags = SPI_TRANS_USE_TXDATA;

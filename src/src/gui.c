@@ -6,6 +6,7 @@
 #include <esp_http_server.h>
 #include <esp_log.h>
 
+#include "config.h"
 #include "esp_err.h"
 #include "esp_netif.h"
 #include "esp_netif_types.h"
@@ -15,6 +16,7 @@
 #include "json.h"
 #include "osd.h"
 #include "simple_fpv_timer.h"
+#include "timer.h"
 #include "gui.h"
 
 static const char * TAG = "http";
@@ -143,7 +145,7 @@ static esp_err_t ws_rssi_handler(httpd_req_t *req)
     ESP_LOGI(TAG, "Received ws pkt length:%d %.*s", ws_pkt.len, ws_pkt.len, json_buffer);
     json_t *j = json_parse_static_buffer(ws_pkt.len);
     if (j_find_str(j, "type", tmp_buf64, sizeof(tmp_buf64)) ){
-        ESP_LOGI(TAG, "Received ws pkt type %s", tmp_buf64);
+        ESP_LOGI(TAG, "Received ws pkt types %s", tmp_buf64);
     }
     return ESP_OK;
 }
@@ -304,6 +306,72 @@ static esp_err_t api_v1_post_osd(httpd_req_t *req, ctx_t *ctx, const char *uri_t
     return  ESP_OK;
 }
 
+static esp_err_t api_v1_post_time_sync(httpd_req_t *req, ctx_t *ctx,
+                                 char *post_data, int len)
+{
+    static json_t jr_obj, *jr;
+    static json_writer_t jw_obj, *jw;
+
+    /* the given post_data, is a pointer into static json_buffer, we will
+     * write our responds after it, as we need the mesage while writing
+     * the response. */
+    char *wbuf =  json_buffer + len + 1;
+    int wbuf_len = sizeof(json_buffer) - len - 1;
+
+    json_t client;
+    json_t server;
+    uint64_t val;
+
+    jr = &jr_obj;
+    jw = &jw_obj;
+
+    if (wbuf_len < 0)
+        return ESP_ERR_INVALID_SIZE;
+
+    j_init(jr, jsmn_tokens, sizeof(jsmn_tokens) / sizeof(jsmntok_t));
+
+    if (j_parse(jr, post_data, len)) {
+        j_find(jr, "server", &server);
+        j_find(jr, "client", &client);
+
+        printf("T: start: %.*s\n", len, json_buffer);
+
+        jw_init(jw, wbuf, wbuf_len);
+        jw_object(jw) {
+            jw_kv(jw, "server"){
+                jw_array(jw){
+                    json_t e = {0};
+                    while(j_next(&server, &e)) {
+                        if (j_get_uint64(&e, &val))
+                            jw_uint64(jw, val);
+                    }
+                    jw_uint64(jw, get_millis());
+                }
+            }
+            jw_kv(jw, "client"){
+                jw_array(jw){
+                    json_t e = {0};
+                    while(j_next(&client, &e)) {
+                        if (j_get_uint64(&e, &val))
+                            jw_uint64(jw, val);
+                    }
+                }
+            }
+        }
+        if (jw->error) {
+            request_send_error(req, "Failed to write json");
+        } else {
+            httpd_resp_set_status(req, "200 OK");
+            request_send_json(req, jw->buf, jw->wptr - jw->buf);
+        }
+    } else {
+            request_send_error(req, "Failed to parse json");
+    }
+
+    return ESP_OK;
+}
+
+
 static esp_err_t api_v1_post_handler(httpd_req_t *req)
 {
     ctx_t *ctx = (ctx_t*) req->user_ctx;
@@ -344,6 +412,7 @@ static esp_err_t api_v1_post_handler(httpd_req_t *req)
                     }
                 }
             }
+            cfg_verify(&ctx->cfg);
             if (cfg_save(&ctx->cfg) == ESP_OK) {
                 if (sft_update_settings(ctx))
                     request_send_ok(req);
@@ -358,11 +427,7 @@ static esp_err_t api_v1_post_handler(httpd_req_t *req)
         }
 
     } else if (strcmp(req->uri, "/api/v1/start_calibration") == 0) {
-        lc->in_calib_mode = true;
-        lc->rssi_peak = 0;
-        lc->rssi_enter = 0;
-        lc->rssi_leave = 0;
-        lc->drone_in_gate = 0;
+        sft_start_calibration(ctx);
         request_send_ok(req);
 
     } else if (strcmp(req->uri, "/api/v1/clear_laps") == 0) {
@@ -378,6 +443,11 @@ static esp_err_t api_v1_post_handler(httpd_req_t *req)
                 //                    http_send_api_data_to("clear_laps", "", player->ipaddr);
             }
         }
+
+        sft_event_start_race_t ev = {.offset = 30000 };
+        ESP_ERROR_CHECK(
+            esp_event_post(SFT_EVENT, SFT_EVENT_START_RACE,
+                           &ev, sizeof(ev), pdMS_TO_TICKS(500)));
 
         request_send_ok(req);
 
@@ -424,8 +494,10 @@ static esp_err_t api_v1_post_handler(httpd_req_t *req)
             request_send_error(req, "Failed to parse json");
 
     } else if ((tok = strstartwith(req->uri, "/api/v1/osd/"))) {
-
         return api_v1_post_osd(req, ctx, tok, json_buffer, len);
+
+    } else if (strcmp(req->uri, "/api/v1/time-sync") == 0) {
+        return api_v1_post_time_sync(req, ctx, json_buffer, len);
 
     } else {
         request_send_error(req, "404 Not found - %s", req->uri);
@@ -442,17 +514,22 @@ void sft_event_rssi_update(void* ctx, esp_event_base_t base, int32_t id, void* e
     jw = &jwmem;
     jw_init(jw, json_buffer, sizeof(json_buffer));
 
-    jw_array(jw) {
-        for (int i = 0; i < ev->cnt; i++) {
-            jw_object(jw) {
-                jw_kv_int(jw, "t", ev->data[i].abs_time_ms);
-                jw_kv_int(jw, "s", ev->data[i].rssi);
-                jw_kv_int(jw, "r", ev->data[i].rssi_raw);
-                jw_kv_int(jw, "i", ev->data[i].drone_in_gate);
+    jw_object(jw){
+        jw_kv_str(jw, "type", "rssi");
+        jw_kv_int(jw, "freq", ev->freq);
+        jw_kv(jw, "data"){
+            jw_array(jw) {
+                for (int i = 0; i < ev->cnt; i++) {
+                    jw_object(jw) {
+                        jw_kv_int(jw, "t", ev->data[i].abs_time_ms);
+                        jw_kv_int(jw, "s", ev->data[i].rssi);
+                        jw_kv_int(jw, "r", ev->data[i].rssi_raw);
+                        jw_kv_int(jw, "i", ev->data[i].drone_in_gate);
+                    }
+                }
             }
         }
     }
-
     gui_send_all(ctx, json_buffer);
 }
 

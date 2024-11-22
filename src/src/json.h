@@ -2,8 +2,9 @@
 
 #pragma once
 
+#include <stdbool.h>
+#include <inttypes.h>
 #include <lwip/ip4_addr.h>
-#include <stdint.h>
 #define JSMN_PARENT_LINKS
 #define JSMN_HEADER
 #include "jsmn.h"
@@ -22,6 +23,8 @@ jsmntok_t * j_get_kv(json_t *j, char *key, size_t klen, char *value, size_t vlen
 jsmntok_t * j_get_str(json_t *j, char *buf, size_t len);
 int j_eq_str(json_t *j, char *str);
 jsmntok_t * j_get_int(json_t *j, int *ret);
+jsmntok_t * j_get_long(json_t *j, long *ret);
+jsmntok_t * j_get_uint64(json_t *j, uint64_t *ret);
 jsmntok_t * j_find_str(json_t *j, const char *name, char *buf, size_t len);;
 jsmntok_t * j_find_int(json_t *j, const char *name, int *ret);
 jsmntok_t * j_find_uint64(json_t *j, const char *name, uint64_t *ret);
@@ -60,9 +63,13 @@ void jw_kv_end(json_writer_t *jw);
 
 void jw_str(json_writer_t *jw, const char *value);
 void jw_int(json_writer_t *jw, int value);
+void jw_int32(json_writer_t *jw, int32_t value);
+void jw_uint64(json_writer_t *jw, uint64_t value);
 void jw_format(json_writer_t *jw, const char *format, ...);
 void jw_kv_str(json_writer_t *jw, const char *key, const char *value);
 void jw_kv_int(json_writer_t *jw, const char *key, int value);
+void jw_kv_int32(json_writer_t *jw, const char *key, int32_t value);
+void jw_kv_uint64(json_writer_t *jw, const char *key, uint64_t value);
 void jw_kv_bool(json_writer_t *jw, const char *key, bool value);
 void jw_kv_ip4(json_writer_t *jw, const char *key, ip4_addr_t ipv4);
 void jw_kv_mac_in_dec(json_writer_t *jw, const char *key, const char *mac);

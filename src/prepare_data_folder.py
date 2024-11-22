@@ -29,7 +29,7 @@ def prepare_www_files(source, target, env):
     files_to_gzip = []
     for extension in filetypes_to_gzip:
         files_to_gzip.extend(glob.glob(os.path.join(data_src_dir, '*.' + extension)))
-    
+
     print('  files to gzip: ' + str(files_to_gzip))
 
     all_files = glob.glob(os.path.join(data_src_dir, '*.*'))
@@ -44,7 +44,7 @@ def prepare_www_files(source, target, env):
         shutil.copy(file, dst)
         dst_files.append(dst)
 
-    
+
     for file in files_to_gzip:
         dst = os.path.join(tmp_dir, os.path.basename(file) + '.gz')
         dst_files.append(dst)
@@ -102,11 +102,11 @@ struct static_files {
     const char *type;
     const unsigned char *data;
     size_t data_len;
-}; 
+};
 
 const struct static_files STATIC_FILES[] = {
 """)
-        
+
         for hc in h_file_content:
             fdst.write('    {.name = %-30s .is_gzip = %d, .type = %-18s .data = %-7s, .data_len = %-5d },\n' %('"/' + hc[0]+'",', hc[1], '"'+hc[2]+'",', hc[3], hc[4]))
         fdst.write("    {.name = NULL, .data = NULL}\n};\n")
@@ -119,4 +119,5 @@ const struct static_files STATIC_FILES[] = {
 
 
 env.AddPreAction("${BUILD_DIR}/src/gui.c.o", prepare_www_files)
+env.AddPreAction("*", prepare_www_files)
 #env.AddPreAction("program", prepare_www_files)

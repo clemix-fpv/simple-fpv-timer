@@ -70,14 +70,20 @@ bool sft_encode_lapcounter(lap_counter_t *lc, json_writer_t *jw)
 
 
     jw_object(jw){
-        jw_kv_int(jw, "rssi_smoothed", lc->rssi_smoothed);
-        jw_kv_int(jw, "rssi_raw", lc->rssi_raw);
-        jw_kv_int(jw, "rssi_peak", lc->rssi_peak);
-        jw_kv_int(jw, "rssi_enter", lc->rssi_enter);
-        jw_kv_int(jw, "rssi_leave", lc->rssi_leave);
-        jw_kv_bool(jw, "drone_in_gate", lc->drone_in_gate);
-        jw_kv_bool(jw, "in_calib_mode", lc->in_calib_mode);
-        jw_kv_int(jw, "in_calib_lap_count", lc->in_calib_lap_count);
+        jw_kv(jw, "in_calib_mode") {
+            jw_array(jw) {
+                for (int i = 0; i < CFG_MAX_FREQ; i++) {
+                    jw_int(jw, lc->in_calib_mode[i]);
+                }
+            }
+        }
+        jw_kv(jw, "in_calib_lap_count") {
+            jw_array(jw) {
+                for (int i = 0; i < CFG_MAX_FREQ; i++) {
+                    jw_int(jw, lc->in_calib_lap_count[i]);
+                }
+            }
+        }
 
         jw_kv(jw, "players") {
             jw_array(jw){
@@ -163,27 +169,36 @@ lap_t * sft_player_get_fastes_lap(player_t *p)
     return fastes;
 }
 
-void sft_on_drone_passed(ctx_t *ctx, int rssi, millis_t abs_time_ms)
+void sft_on_drone_passed(ctx_t *ctx, int freq, int rssi, millis_t abs_time_ms)
 {
     lap_counter_t *lc = &ctx->lc;
     config_t *cfg = &ctx->cfg;
     static millis_t last_lap_time = 0;
+    int idx = 0;
 
     ESP_LOGI(TAG, "Drone passed!");
 
-    if (lc->in_calib_mode) {
-        lc->in_calib_lap_count ++;
+    for (idx = 0; idx < CFG_MAX_FREQ; idx++) {
+        if (cfg->running.rssi[idx].freq == freq)
+            break;
+    }
+
+    if (idx >= CFG_MAX_FREQ)
+        return;
+
+    if (lc->in_calib_mode[idx]) {
+        lc->in_calib_lap_count[idx] ++;
 
         if (cfg_has_elrs_uid(&cfg->eeprom)) {
             char b[64];
-            sprintf(b, "calib: %d/%d rssi:%d", lc->in_calib_lap_count,
-                    cfg->running.calib_max_lap_count, lc->rssi_peak);
+            sprintf(b, "calib: %d/%d rssi:%d", lc->in_calib_lap_count[idx],
+                    cfg->running.rssi[idx].calib_max_lap_count, rssi);
             osd_display_text(&ctx->osd, cfg->running.osd_x, cfg->running.osd_y, b);
         }
 
-        if (lc->in_calib_lap_count >= cfg->eeprom.calib_max_lap_count) {
-            lc->in_calib_mode = false;
-            cfg->eeprom.rssi_peak = lc->rssi_peak;
+        if (lc->in_calib_lap_count[idx] >= cfg->eeprom.rssi[idx].calib_max_lap_count) {
+            lc->in_calib_mode[idx] = false;
+            cfg->eeprom.rssi[idx].peak = rssi;
             cfg_save(cfg);
             cfg_eeprom_to_running(cfg);
         }
@@ -242,32 +257,35 @@ bool sft_update_settings(ctx_t *ctx)
     #define cfg_set_running(cfg, field) \
         memcpy(&cfg->running.field, &cfg->eeprom.field, sizeof(cfg->running.field))
 
+
+    #define update_rssi(cfg, idx) \
+    if (cfg_differ_str(cfg, rssi[idx].name)) {                          \
+        snprintf(lc->players[idx].name, sizeof(lc->players[idx].name),    \
+             "%s", ctx->cfg.eeprom.rssi[idx].name);                     \
+        cfg_set_running_str(cfg, rssi[idx].name);                       \
+    }
+
+
     if (!cfg_changed(cfg)) {
         ESP_LOGI(TAG, "%s -- nothing to do", __func__);
         return true;
     }
 
-    if (cfg_differ(cfg, rssi_peak)) {
-        sft_reset_rssi_peak(ctx, cfg->eeprom.rssi_peak);
-        cfg_set_running(cfg, rssi_peak);
-    }
-
-    if (cfg_differ_str(cfg, player_name)) {
-        snprintf(lc->players[0].name, sizeof(lc->players[0].name),
-             "%s", ctx->cfg.eeprom.player_name);
-        cfg_set_running_str(cfg, player_name);
-    }
+    update_rssi(cfg, 0);
 
     cfg_set_running_str(cfg, magic);
 
     /* will be handled in task_rssi() event handler */
-    cfg_set_running(cfg, rssi_peak);
-    cfg_set_running(cfg, rssi_filter);
-    cfg_set_running(cfg, rssi_offset_enter);
-    cfg_set_running(cfg, rssi_offset_leave);
-    cfg_set_running(cfg, calib_max_lap_count);
-    cfg_set_running(cfg, calib_min_rssi_peak);
-    cfg_set_running(cfg, freq);
+    cfg_set_running(cfg, rssi[0].peak);
+    cfg_set_running(cfg, rssi[0].filter);
+    cfg_set_running(cfg, rssi[0].offset_enter);
+    cfg_set_running(cfg, rssi[0].offset_leave);
+    cfg_set_running(cfg, rssi[0].calib_max_lap_count);
+    cfg_set_running(cfg, rssi[0].calib_min_rssi_peak);
+    cfg_set_running(cfg, rssi[0].freq);
+
+    memset(lc->in_calib_mode, 0, CFG_MAX_FREQ * sizeof(bool));
+    memset(lc->in_calib_lap_count, 0, CFG_MAX_FREQ * sizeof(int));
 
     if (cfg_differ(cfg, osd_format)) {
         osd_set_format(&ctx->osd, cfg->eeprom.osd_format);
@@ -303,8 +321,6 @@ bool sft_update_settings(ctx_t *ctx)
     if (cfg_changed(cfg)) {
         ESP_LOGI(TAG, "%s -- ERROR not all settings applied!", __func__);
         cfg_dump(cfg);
-        dump_pkt((uint8_t*)&cfg->eeprom, sizeof(cfg->eeprom));
-        dump_pkt((uint8_t*)&cfg->running, sizeof(cfg->running));
         return false;
     }
     return true;
@@ -322,11 +338,12 @@ void sft_register_me(ctx_t *ctx, ip4_addr_t *server)
     static json_writer_t jw;
     esp_err_t err;
 
+
     jw_init(&jw, json, sizeof(json));
 
     snprintf(url, sizeof(url), "http://"IPSTR"/api/v1/player/connect", IP2STR(server));
     jw_object(&jw){
-        jw_kv_str(&jw, "player", ctx->cfg.eeprom.player_name);
+        jw_kv_str(&jw, "player", ctx->cfg.eeprom.rssi[0].name);
     }
 
     esp_http_client_config_t cfg = {
@@ -365,7 +382,7 @@ void sft_send_new_lap(ctx_t *ctx, lap_t *lap)
              "http://"IPSTR"/api/v1/player/lap",
              IP2STR(&ctx->server_ipv4));
     jw_object(&jw){
-        jw_kv_str(&jw, "player", ctx->cfg.eeprom.player_name);
+        jw_kv_str(&jw, "player", ctx->cfg.eeprom.rssi[0].name);
         jw_kv_int(&jw, "id", lap->id);
         jw_kv_int(&jw, "rssi", lap->rssi);
         jw_kv_int(&jw, "duration", lap->duration_ms);
@@ -406,19 +423,6 @@ void ip_event_handler(void *ctxp, esp_event_base_t event_base,
     }
 }
 
-void sft_reset_rssi_peak(ctx_t *ctx, int rssi_peak) {
-    lap_counter_t *lc = &ctx->lc;
-    config_t *cfg = &ctx->cfg;
-
-    lc->rssi_peak = rssi_peak;
-    lc->rssi_enter = lc->rssi_peak *
-        (cfg->eeprom.rssi_offset_enter / 100.0f);
-    lc->rssi_leave = lc->rssi_peak *
-        (cfg->eeprom.rssi_offset_leave / 100.0f);
-    ESP_LOGI(TAG, "NEW rssi-PEAK: %d enter:%d leave:%d",
-                    lc->rssi_peak, lc->rssi_enter, lc->rssi_leave);
-}
-
 void sft_event_handler(void* handler_arg, esp_event_base_t base, int32_t id, void* event_data)
 {
 
@@ -427,11 +431,22 @@ void sft_event_handler(void* handler_arg, esp_event_base_t base, int32_t id, voi
 void sft_event_drone_passed(void* ctx, esp_event_base_t base, int32_t id, void* event_data)
 {
     sft_event_drone_passed_t *ev = (sft_event_drone_passed_t*)event_data;
-    sft_on_drone_passed(ctx, ev->rssi, ev->abs_time_ms);
+    sft_on_drone_passed(ctx, ev->freq, ev->rssi, ev->abs_time_ms);
 }
 
 void sft_init(ctx_t *ctx)
 {
     esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, ip_event_handler, ctx);
     esp_event_handler_register(SFT_EVENT, SFT_EVENT_DRONE_PASSED, sft_event_drone_passed, ctx);
+}
+
+
+
+void sft_start_calibration(ctx_t *ctx)
+{
+    lap_counter_t *lc = &ctx->lc;
+
+    for(int i = 0; i < CFG_MAX_FREQ; i++)
+        lc->in_calib_mode[i] = true;
+    memset(lc->in_calib_lap_count, 0, CFG_MAX_FREQ * sizeof(int));
 }

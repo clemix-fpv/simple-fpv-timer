@@ -4,7 +4,7 @@ SPDX-License-Identifier: GPL-3.0+
 
 <!DOCTYPE html>
 <html lang="en" data-bs-theme="dark">
- 
+
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -12,7 +12,7 @@ SPDX-License-Identifier: GPL-3.0+
         <link rel="stylesheet" href="/bootstrap.min.css">
             <link rel="stylesheet" href="/uPlot.min.css">
     </head>
- 
+
     <body>
 
     <div class=" card fixed-top" id="box_notify" style="top: -100px">
@@ -41,7 +41,7 @@ SPDX-License-Identifier: GPL-3.0+
             <div class="progress" id="p_cali" style='display: none;'>
               <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" aria-valuenow="75" aria-valuemin="0" aria-valuemax="100" style="width: 75%;"></div>
             </div>
-            <button type="button" class="btn btn-secondary btn-sm" id="btn_clear_laps" onclick="simple_api_call('clear_laps')" data-toggle="tooltip" title="Clear lap list" >&#8634;</button>
+            <button type="button" class="btn btn-secondary btn-sm" id="btn_clear_laps" onclick="simple_api_call('clear_laps')" data-toggle="tooltip" title="Start race" >&#8634;</button>
         </div>
         <div id="d_cali"></div>
         <div id="d_labs">
@@ -84,5 +84,5 @@ SPDX-License-Identifier: GPL-3.0+
     <script src="/uPlot.iife.min.js"></script>
 	<script src="/index.js"></script>
     </body>
- 
+
 </html>

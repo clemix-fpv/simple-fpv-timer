@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0+
 
 #include <errno.h>
-#include <stdbool.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -95,7 +94,8 @@ jsmntok_t * j_get_str(json_t *j, char *buf, size_t len)
 
     t = j->tokens;
 
-    if (t->type != JSMN_STRING)
+
+    if (!t || t->type != JSMN_STRING)
         return NULL;
 
     int t_len = t->end - t->start;
@@ -129,7 +129,7 @@ int j_eq_str(json_t *j, char *str)
 
     t = j->tokens;
 
-    if (t->type != JSMN_STRING || !str)
+    if (!t || t->type != JSMN_STRING || !str)
         return 0;
 
     int t_len = t->end - t->start;
@@ -158,10 +158,23 @@ jsmntok_t * j_get_int(json_t *j, int *ret)
 
     t = j->tokens;
 
-    if (t->type != JSMN_STRING && t->type != JSMN_PRIMITIVE)
+    if (!t || (t->type != JSMN_STRING && t->type != JSMN_PRIMITIVE))
         return NULL;
 
     *ret = atoi(j->buf + t->start);
+    return t;
+}
+
+jsmntok_t * j_get_long(json_t *j, long *ret)
+{
+    jsmntok_t *t;
+
+    t = j->tokens;
+
+    if (!t || (t->type != JSMN_STRING && t->type != JSMN_PRIMITIVE))
+        return NULL;
+
+    *ret = atol(j->buf + t->start);
     return t;
 }
 
@@ -171,8 +184,9 @@ jsmntok_t * j_get_uint64(json_t *j, uint64_t *ret)
 
     t = j->tokens;
 
-    if (t->type != JSMN_STRING && t->type != JSMN_PRIMITIVE)
+    if (!t || (t->type != JSMN_STRING && t->type != JSMN_PRIMITIVE))
         return NULL;
+
     if (sizeof(unsigned long) == 8) {
         *ret = strtoul(j->buf + t->start, NULL, 10);
     } else {
@@ -210,7 +224,6 @@ jsmntok_t * j_find_uint64(json_t *j, const char *name, uint64_t *ret)
 
     return j_get_uint64(&f, ret);
 }
-
 
 json_t * j_next(json_t * array, json_t *prev)
 {
@@ -393,10 +406,55 @@ void jw_int(json_writer_t *jw, int value)
     jw_put(jw, ',');
 }
 
+void jw_int32(json_writer_t *jw, int32_t value)
+{
+    int len = 0;
+    int v = value;
+    while(v > 0) {
+        len++;
+        v /= 10;
+    }
+    if (value < 0)
+        len++;
+
+    jw_can_write(jw, len);
+    jw->wptr += sprintf(jw->wptr,"%"PRId32, value);
+    jw_put(jw, ',');
+}
+
+void jw_uint64(json_writer_t *jw, uint64_t value)
+{
+    int len = 0;
+    uint64_t v = value;
+
+    while(v > 0) {
+        len++;
+        v /= 10;
+    }
+
+    jw_can_write(jw, len);
+    jw->wptr += sprintf(jw->wptr,"%"PRIu64, value);
+    jw_put(jw, ',');
+}
+
+
+
 void jw_kv_int(json_writer_t *jw, const char *key, int value)
 {
     jw_kv(jw, key) {
         jw_int(jw, value);
+    }
+}
+void jw_kv_int32(json_writer_t *jw, const char *key, int32_t value)
+{
+    jw_kv(jw, key) {
+        jw_int32(jw, value);
+    }
+}
+void jw_kv_uint64(json_writer_t *jw, const char *key, uint64_t value)
+{
+    jw_kv(jw, key) {
+        jw_uint64(jw, value);
     }
 }
 
@@ -421,6 +479,8 @@ void jw_kv_mac_in_dec(json_writer_t *jw, const char *key, const char *mac)
     }
 }
 
+
+
 void jw_format(json_writer_t *jw, const char *format, ...)
 {
     va_list args;
@@ -438,3 +498,4 @@ void jw_format(json_writer_t *jw, const char *format, ...)
         jw_can_write(jw, jw->len +1);
     }
 }
+

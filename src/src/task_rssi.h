@@ -6,20 +6,21 @@
 #include "rx5808.h"
 #include "timer.h"
 
+#define MAX_FREQ 8
+
 typedef struct {
-    rx5808_t rx5808;
     int freq;
-    float rssi_offset_enter;
-    float rssi_offset_leave;
 
-    int rssi_raw;
-    int rssi_smoothed;
+    int raw;
+    int smoothed;
 
-    float rssi_filter;
+    int peak;
+    int enter;
+    int leave;
 
-    int rssi_peak;
-    int rssi_enter;
-    int rssi_leave;
+    float filter;
+    float offset_enter;
+    float offset_leave;
 
     bool drone_in_gate;
     int in_gate_peak_rssi;
@@ -30,8 +31,16 @@ typedef struct {
     int calibration_lap_count;
     int calibration_max_laps;
 
-    sft_event_rssi_update_t rssi_update_ev;
     millis_t collect_next;
+} rssi_t;
+
+typedef struct {
+    rx5808_t rx5808;
+
+    rssi_t rssi_array[MAX_FREQ];
+    rssi_t *rssi;           /* pointer to current rssi_array[idx] */
+
+    sft_event_rssi_update_t rssi_update_ev[MAX_FREQ];
 
 } task_rssi_t;
 

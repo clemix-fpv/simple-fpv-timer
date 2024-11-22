@@ -1,7 +1,9 @@
 #include <task_rssi.h>
+#include "esp_err.h"
 #include "simple_fpv_timer.h"
 #include "timer.h"
 #include <config.h>
+#include "esp_log.h"
 
 #define PIN_NUM_MOSI 23
 #define PIN_NUM_CLK  18
@@ -12,37 +14,75 @@
 StackType_t task_rssi_stack[ STACK_SIZE ];
 StaticTask_t task_rssi_buffer;
 
-void task_rssi_set_config(task_rssi_t *tsk, const config_data_t *cfg)
+static const char * TAG = "task-rssi";
+
+static esp_err_t task_rssi_next_channel(task_rssi_t *tsk);
+
+
+static void task_rssi_set_config(task_rssi_t *tsk, const config_data_t *cfg)
 {
-    printf("FREQ:%d", cfg->freq);
-    if(cfg->freq != tsk->freq) {
-        if (tsk->rx5808.spi)
-            rx5808_set_channel(&tsk->rx5808, cfg->freq);
-        tsk->freq = cfg->freq;
+    bool changed_channel = false;
+
+    for (int i=0; i< CFG_MAX_FREQ; i++) {
+        if (tsk->rssi_array[i].freq != cfg->rssi[i].freq) {
+            changed_channel = true;
+            break;
+        }
+    }
+    if (!changed_channel) {
+
     }
 
-    tsk->rssi_filter = cfg->rssi_filter / 100.0f;
-    if (tsk->rssi_filter < 0.01)
-        tsk->rssi_filter = 0.01;
+    printf("CONFIG changed freq:");
+    for (int i=0; i< CFG_MAX_FREQ; i++)
+        printf("%d ", cfg->rssi[i].freq);
 
-    tsk->rssi_peak = cfg->rssi_peak;
-    tsk->rssi_offset_enter = cfg->rssi_offset_enter / 100.0f;
-    tsk->rssi_offset_leave = cfg->rssi_offset_leave / 100.0f;
 
-    tsk->rssi_enter = cfg->rssi_peak * tsk->rssi_offset_enter;
-    tsk->rssi_leave = cfg->rssi_peak * tsk->rssi_offset_leave;
+    for (int i=0; i< CFG_MAX_FREQ; i++) {
+        rssi_t *rssi = &tsk->rssi_array[i];
+        const config_rssi_t *cfg_rssi = &cfg->rssi[i];
+        sft_event_rssi_update_t *ev = &tsk->rssi_update_ev[i];
 
-    tsk->calibration_min_rssi = cfg->calib_min_rssi_peak;
-    tsk->calibration_max_laps = cfg->calib_max_lap_count;
-    tsk->calibration_lap_count = 0;
-    tsk->calibration = false;
+        if (cfg_rssi->freq == 0) {
+            memset(rssi, 0, sizeof(rssi_t));
+            memset(ev, 0, sizeof(sft_event_rssi_update_t));
+            continue;
+        }
 
-    tsk->drone_in_gate = 0;
-    tsk->in_gate_peak_rssi = 0;
-    tsk->in_gate_peak_millis = 0;
+        rssi->freq = cfg_rssi->freq;
+        rssi->filter = cfg_rssi->filter / 100.0f;
+        if (rssi->filter < 0.01)
+            rssi->filter = 0.01;
+
+        rssi->peak = cfg_rssi->peak;
+        rssi->offset_enter = cfg_rssi->offset_enter / 100.0f;
+        rssi->offset_leave = cfg_rssi->offset_leave / 100.0f;
+
+        rssi->enter = rssi->peak * rssi->offset_enter;
+        rssi->leave = rssi->peak * rssi->offset_leave;
+
+        rssi->calibration_min_rssi = cfg_rssi->calib_min_rssi_peak;
+        rssi->calibration_max_laps = cfg_rssi->calib_max_lap_count;
+        rssi->calibration_lap_count = 0;
+        rssi->calibration = false;
+
+        rssi->drone_in_gate = 0;
+        rssi->in_gate_peak_rssi = 0;
+        rssi->in_gate_peak_millis = 0;
+
+
+        if (rssi->freq != ev->freq) {
+            memset(ev, 0, sizeof(sft_event_rssi_update_t));
+            ev->freq = rssi->freq;
+        }
+    }
+
+    tsk->rssi = NULL;
+
+    task_rssi_next_channel(tsk);
 }
 
-void task_rssi_on_update_cfg(void* priv, esp_event_base_t base, int32_t id, void* event_data)
+static void task_rssi_on_update_cfg(void* priv, esp_event_base_t base, int32_t id, void* event_data)
 {
     task_rssi_t *tsk = (task_rssi_t*) priv;
     config_data_t *cfg = &((sft_event_cfg_changed_t*) event_data)->cfg;
@@ -50,7 +90,7 @@ void task_rssi_on_update_cfg(void* priv, esp_event_base_t base, int32_t id, void
     task_rssi_set_config(tsk, cfg);
 }
 
-void task_rssi_process_rssi(task_rssi_t *tsk, sft_timer_t *gate_blocked, int rssi_raw)
+static void task_rssi_process_rssi(task_rssi_t *tsk, sft_timer_t *gate_blocked, int rssi_raw)
 {
     /*                    Drone
      *                    left
@@ -63,77 +103,94 @@ void task_rssi_process_rssi(task_rssi_t *tsk, sft_timer_t *gate_blocked, int rss
     #define COLLECT_MIN  700     /* 1s */
     #define GATE_BLOCKED 2000    /* 2s */
 
-    tsk->rssi_raw = rssi_raw;
+    rssi_t *rssi = tsk->rssi;
 
-    tsk->rssi_smoothed = (tsk->rssi_filter * tsk->rssi_raw) +
-                         ((1.0f - tsk->rssi_filter) * tsk->rssi_smoothed);
+    if (!rssi)
+        return;
 
-    if( tsk->calibration) {
-        if (tsk->rssi_smoothed > tsk->rssi_peak &&
-            tsk->rssi_smoothed > tsk->calibration_min_rssi) {
 
-            tsk->rssi_peak = tsk->rssi_smoothed;
-            tsk->rssi_enter = tsk->rssi_peak * tsk->rssi_offset_enter;
-            tsk->rssi_leave = tsk->rssi_peak * tsk->rssi_offset_leave;
-            tsk->drone_in_gate = false;
+    rssi->raw = rssi_raw;
+
+    rssi->smoothed = (rssi->filter * rssi->raw) +
+                         ((1.0f - rssi->filter) * rssi->smoothed);
+
+    if( rssi->calibration) {
+        if (rssi->smoothed > rssi->peak &&
+            rssi->smoothed > rssi->calibration_min_rssi) {
+
+            rssi->peak = rssi->smoothed;
+            rssi->enter = rssi->peak * rssi->offset_enter;
+            rssi->leave = rssi->peak * rssi->offset_leave;
+            rssi->drone_in_gate = false;
 
             timer_start(gate_blocked, COLLECT_MIN, NULL, NULL);
         }
     }
 
-        /*ESP_LOGI(TAG, "rssi %d  %d %d", tsk->rssi_smoothed,*/
-        /*                tsk->rssi_enter , tsk->rssi_leave);*/
-    if (!tsk->rssi_enter || !tsk->rssi_leave)
+    /*ESP_LOGI(TAG, "rssi %d  enter:%d leave:%d in-gate:%d blocked:%d", */
+    /*                    rssi->smoothed,*/
+    /*                    rssi->enter , rssi->leave, rssi->drone_in_gate,*/
+    /*                     !timer_over(gate_blocked, NULL));*/
+
+    if (!rssi->enter || !rssi->leave)
         return;
 
-    if (tsk->rssi_enter < tsk->rssi_smoothed &&
+    if (rssi->enter < rssi->smoothed &&
             timer_over(gate_blocked, NULL) &&
-            !tsk->drone_in_gate) {
-//        ESP_LOGI(TAG, "Drone enter gate! rssi: %d", tsk->rssi_smoothed);
+            !rssi->drone_in_gate) {
+        ESP_LOGI(TAG, "Drone enter gate! rssi: %d", rssi->smoothed);
         timer_start(gate_blocked, COLLECT_MIN, NULL, NULL);
-        tsk->drone_in_gate = true;
-        tsk->in_gate_peak_rssi = tsk->rssi_smoothed;
-        tsk->in_gate_peak_millis = get_millis();
+        rssi->drone_in_gate = true;
+        rssi->in_gate_peak_rssi = rssi->smoothed;
+        rssi->in_gate_peak_millis = get_millis();
 
-    } else if (tsk->drone_in_gate &&
+    } else if (rssi->drone_in_gate &&
             timer_over(gate_blocked, NULL) &&
-            tsk->rssi_leave > tsk->rssi_smoothed) {
-        tsk->drone_in_gate = false;
+            rssi->leave > rssi->smoothed) {
+        rssi->drone_in_gate = false;
 
         timer_start(gate_blocked, GATE_BLOCKED, NULL, NULL);
 
         sft_event_drone_passed_t e = {
-            .abs_time_ms = tsk->in_gate_peak_millis,
-            .rssi = tsk->in_gate_peak_rssi,
+            .freq = rssi->freq,
+            .abs_time_ms = rssi->in_gate_peak_millis,
+            .rssi = rssi->in_gate_peak_rssi,
         };
 
+        ESP_LOGI(TAG, "DRONE PASSED");
         ESP_ERROR_CHECK(
             esp_event_post(SFT_EVENT, SFT_EVENT_DRONE_PASSED,
                            &e, sizeof(e), pdMS_TO_TICKS(500)));
 
-    } else if (tsk->drone_in_gate) {
-        if (tsk->in_gate_peak_rssi < tsk->rssi_smoothed) {
-            tsk->in_gate_peak_rssi = tsk->rssi_smoothed;
-            tsk->in_gate_peak_millis = get_millis();
+    } else if (rssi->drone_in_gate) {
+        if (rssi->in_gate_peak_rssi < rssi->smoothed) {
+            rssi->in_gate_peak_rssi = rssi->smoothed;
+            rssi->in_gate_peak_millis = get_millis();
         }
     }
 }
 
-void task_rssi_collect_rssi(task_rssi_t *tsk, millis_t time)
+static void task_rssi_collect_rssi(task_rssi_t *tsk, millis_t time)
 {
-    #define TIME_SLOT 300    /* Send out collected data after at 300s */
-    #define TIME_OFFSET 100  /* only every 100ms one datapoint for displaying */
+#define TIME_SLOT 300    /* Send out collected data after at 300s */
+#define TIME_OFFSET 100  /* only every 100ms one datapoint for displaying */
 
-    sft_event_rssi_update_t *ev = &tsk->rssi_update_ev;
+    rssi_t *rssi = tsk->rssi;
 
-    int idx = ev->cnt > 0 ? ev->cnt -1 : 0;
+    if (!rssi)
+        return;
+    int idx = rssi - tsk->rssi_array;
 
-    if (time >= tsk->collect_next ||
-        ev->data[idx].drone_in_gate != tsk->drone_in_gate) {
+    sft_event_rssi_update_t *ev = &tsk->rssi_update_ev[idx];
+
+    idx = ev->cnt > 0 ? ev->cnt -1 : 0;
+
+    if (time >= rssi->collect_next ||
+        ev->data[idx].drone_in_gate != rssi->drone_in_gate) {
 
         if (ev->cnt +1 >= SFT_RSSI_UPDATE_MAX ||
             (ev->cnt > 0 &&
-             ev->data[idx].abs_time_ms - ev->data[0].abs_time_ms >= TIME_SLOT)){
+            ev->data[idx].abs_time_ms - ev->data[0].abs_time_ms >= TIME_SLOT)){
 
             ESP_ERROR_CHECK(
                 esp_event_post(SFT_EVENT, SFT_EVENT_RSSI_UPDATE,
@@ -142,35 +199,103 @@ void task_rssi_collect_rssi(task_rssi_t *tsk, millis_t time)
         }
         idx = ev->cnt++;
         ev->data[idx].abs_time_ms = time;
-        ev->data[idx].rssi = tsk->rssi_smoothed;
-        ev->data[idx].rssi_raw = tsk->rssi_raw;
-        ev->data[idx].drone_in_gate = tsk->drone_in_gate;
+        ev->data[idx].rssi = rssi->smoothed;
+        ev->data[idx].rssi_raw = rssi->raw;
+        ev->data[idx].drone_in_gate = rssi->drone_in_gate;
 
-        tsk->collect_next = time + TIME_OFFSET;
+        rssi->collect_next = time + TIME_OFFSET;
 
-    } else if (ev->data[idx].rssi < tsk->rssi_smoothed) {
-        ev->data[idx].rssi = tsk->rssi_smoothed;
-        ev->data[idx].rssi_raw = tsk->rssi_raw;
+    } else if (ev->data[idx].rssi < rssi->smoothed) {
+        ev->data[idx].rssi = rssi->smoothed;
+        ev->data[idx].rssi_raw = rssi->raw;
     }
-  }
+}
+
+static esp_err_t task_rssi_set_channel(task_rssi_t *tsk, rssi_t *rssi)
+{
+    int idx;
+    esp_err_t e;
+
+    if (tsk->rssi == rssi) {
+        return ESP_OK;
+    }
+
+    /* SANITY CHECK */
+    idx = rssi - tsk->rssi_array;
+    if (idx < 0 || idx >= MAX_FREQ) {
+        tsk->rssi = NULL;
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (!tsk->rx5808.spi) {
+        tsk->rssi = NULL;
+        return ESP_ERR_NOT_ALLOWED;
+    }
+
+    if ((e = rx5808_set_channel(&tsk->rx5808, rssi->freq)) != ESP_OK) {
+        tsk->rssi = NULL;
+        return e;
+    }
+
+    tsk->rssi = rssi;
+    return ESP_OK;
+}
+
+static esp_err_t task_rssi_set_channel_by_freq(task_rssi_t *tsk, int freq)
+{
+    int idx;
+    rssi_t *ptr;
+
+    if (tsk->rssi && tsk->rssi->freq == freq) {
+        return ESP_OK;
+    }
+
+    for (idx=0, ptr = tsk->rssi_array; idx < MAX_FREQ; idx++, ptr++) {
+        if (ptr->freq == freq)
+            break;
+    }
+
+    return task_rssi_set_channel(tsk, ptr);
+}
+
+static esp_err_t task_rssi_next_channel(task_rssi_t *tsk)
+{
+    int idx = 0;
+
+    if (tsk->rssi) {
+        idx = tsk->rssi - tsk->rssi_array;
+
+        if (idx < 0 || idx >= MAX_FREQ)
+            return ESP_ERR_NOT_ALLOWED;
+
+        idx = (idx + 1) % MAX_FREQ;
+    }
+
+    if (tsk->rssi_array[idx].freq == 0) {
+        idx = 0;
+    }
+
+    return task_rssi_set_channel(tsk, &tsk->rssi_array[idx]);
+
+}
 
 void task_rssi( void * priv )
 {
     task_rssi_t *tsk = (task_rssi_t*) priv;
-    sft_timer_t gate_blocked;
-    sft_timer_t loop;
-    sft_timer_t s1;
+    sft_timer_t gate_blocked = {0};
+    sft_timer_t loop = {0};
+    sft_timer_t s1 = {0};
     uint32_t read_cnt = 0;
     millis_t ms;
     int adc_raw = 0;
     int voltage = 0;
+    int freq_plan[8] = { 5658, 5695, 5732, 5769, 5806, 5843, 5880, 5917 };
 
     printf("rx5808 init\n");
     ESP_ERROR_CHECK(rx5808_init(&tsk->rx5808, PIN_NUM_MOSI,
                                 PIN_NUM_CLK, PIN_NUM_CS, PIN_RSSI));
 
-    printf("rx5808 set_channel(%d)\n", tsk->freq);
-    rx5808_set_channel(&tsk->rx5808, tsk->freq);
+    ESP_ERROR_CHECK_WITHOUT_ABORT(task_rssi_next_channel(tsk));
 
     ESP_ERROR_CHECK(esp_event_handler_instance_register(SFT_EVENT, SFT_EVENT_CFG_CHANGED,
                                                         task_rssi_on_update_cfg,
@@ -184,6 +309,8 @@ void task_rssi( void * priv )
         ms = get_millis();
         task_rssi_process_rssi(tsk, &gate_blocked, voltage);
         task_rssi_collect_rssi(tsk, ms);
+
+        ESP_ERROR_CHECK_WITHOUT_ABORT(task_rssi_next_channel(tsk));
 
         ms = get_millis();
         if (loop.end > ms)

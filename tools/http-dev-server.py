@@ -73,31 +73,112 @@ class Player:
         return json.dumps(self.json(), indent = 1)
 
 config = {
-    "freq": 5917,
-    "rssi_peak": 900,
-    "rssi_filter": 60,
-    "rssi_offset_enter": 80,
-    "rssi_offset_leave": 70,
-    "calib_max_lap_count": 3,
-    "calib_min_rssi_peak": 600,
+    "rssi[0].name" : "",
+    "rssi[0].freq": 5917,
+    "rssi[0].peak": 900,
+    "rssi[0].filter": 60,
+    "rssi[0].offset_enter": 80,
+    "rssi[0].offset_leave": 70,
+    "rssi[0].calib_max_lap_count": 3,
+    "rssi[0].calib_min_rssi_peak": 600,
+    "rssi[0].led_color" : 14876421,
+
+    "rssi[1].name" : "",
+    "rssi[1].freq": 0,
+    "rssi[1].peak": 900,
+    "rssi[1].filter": 60,
+    "rssi[1].offset_enter": 80,
+    "rssi[1].offset_leave": 70,
+    "rssi[1].calib_max_lap_count": 3,
+    "rssi[1].calib_min_rssi_peak": 600,
+    "rssi[1].led_color" : 255,
+
+    "rssi[2].name" : "",
+    "rssi[2].freq": 0,
+    "rssi[2].peak": 900,
+    "rssi[2].filter": 60,
+    "rssi[2].offset_enter": 80,
+    "rssi[2].offset_leave": 70,
+    "rssi[2].calib_max_lap_count": 3,
+    "rssi[2].calib_min_rssi_peak": 600,
+    "rssi[2].led_color" : 255,
+
+    "rssi[3].name" : "",
+    "rssi[3].freq": 0,
+    "rssi[3].peak": 900,
+    "rssi[3].filter": 60,
+    "rssi[3].offset_enter": 80,
+    "rssi[3].offset_leave": 70,
+    "rssi[3].calib_max_lap_count": 3,
+    "rssi[3].calib_min_rssi_peak": 600,
+    "rssi[3].led_color" : 255,
+
+    "rssi[4].name" : "",
+    "rssi[4].freq": 5917,
+    "rssi[4].peak": 900,
+    "rssi[4].filter": 60,
+    "rssi[4].offset_enter": 80,
+    "rssi[4].offset_leave": 70,
+    "rssi[4].calib_max_lap_count": 3,
+    "rssi[4].calib_min_rssi_peak": 600,
+    "rssi[4].led_color" : 255,
+
+    "rssi[5].name" : "",
+    "rssi[5].freq": 0,
+    "rssi[5].peak": 900,
+    "rssi[5].filter": 60,
+    "rssi[5].offset_enter": 80,
+    "rssi[5].offset_leave": 70,
+    "rssi[5].calib_max_lap_count": 3,
+    "rssi[5].calib_min_rssi_peak": 600,
+    "rssi[5].led_color" : 255,
+
+    "rssi[6].name" : "",
+    "rssi[6].freq": 0,
+    "rssi[6].peak": 900,
+    "rssi[6].filter": 60,
+    "rssi[6].offset_enter": 80,
+    "rssi[6].offset_leave": 70,
+    "rssi[6].calib_max_lap_count": 3,
+    "rssi[6].calib_min_rssi_peak": 600,
+    "rssi[6].led_color" : 255,
+
+    "rssi[7].name" : "",
+    "rssi[7].freq": 0,
+    "rssi[7].peak": 900,
+    "rssi[7].filter": 60,
+    "rssi[7].offset_enter": 80,
+    "rssi[7].offset_leave": 70,
+    "rssi[7].calib_max_lap_count": 3,
+    "rssi[7].calib_min_rssi_peak": 600,
+    "rssi[7].led_color" : 255,
+
     "elrs_uid": "0,0,0,0,0,0",
     "osd_x": 0,
     "osd_y": 0,
-    "player_name": "client2",
+    "osd_format": "%2L: %5.2ts(%6.2ds)",
     "wifi_mode": 0,
     "ssid": "clemixfpv",
-    "passphrase": ""
+    "passphrase": "",
+
+    "game_mode": 0,
+
+    "led_num": 25,
     }
 
 status = {
+    "in_calib_mode":[0 for i in range(0,8)],
+    "in_calib_lap_count": [0 for i in range(0,8)],
+
+
+    # TODO obsolete clean this up!
     "rssi_smoothed":515,
     "rssi_raw":527,
     "rssi_peak":900,
     "rssi_enter":720,
     "rssi_leave":630,
-    "drone_in_gate":False,
-    "in_calib_mode":False,
-    "in_calib_lap_count":0,
+    "drone_in_gate": False,
+
     'players': [ ]
     }
 
@@ -141,23 +222,34 @@ class WSHandler(WebsocketHandler):
             start = time.time()
             leave_time = time.time()
             enter_time = time.time()
-
-            json_data = []
+            channels = [
+                {"channel" : 5917, "offset": 0, 'data': []},
+                #                {"channel" : 5695, "offset": 100, 'data': []}
+                #    int freq_plan[8] = { 5658, 5695, 5732, 5769, 5806, 5843, 5880, 5917 };
+            ]
+            idx = 0
 
             while True:
                 await asyncio.sleep(0.2)
+
+
                 if session.is_closed:
                     print("Stop generate rssi values")
                     return
 
+                idx = (idx + 1) % len(channels)
+                chan = channels[idx]
+                print("Index {} ".format(chan))
+
+
                 duration = time.time() - start
-                rssi = math.sin(math.pi * duration/10) * ctx.config['rssi_peak']
+                rssi = math.sin(math.pi * duration/10 + chan['offset']) * ctx.config['rssi[0].peak']
                 if rssi < 200:
                     rssi = 200
                 rssi = randrange(int(rssi-100), int(rssi+100))
                 ctx.status['rssi_raw'] = rssi
 
-                f = ctx.config['rssi_filter'] / 100.0
+                f = ctx.config['rssi[0].filter'] / 100.0
                 if f < 0.01:
                     f = 0.01
                 ctx.status['rssi_smoothed'] = int((f * rssi) + ((1.0-f)* ctx.status['rssi_smoothed']))
@@ -169,15 +261,21 @@ class WSHandler(WebsocketHandler):
                     leave_time = time.time()
                     ctx.status['drone_in_gate'] = False
 
-                json_data.append({
+
+                chan['data'].append({
                         't': int(time.time() * 1000),
                         'r': ctx.status['rssi_raw'],
                         's': ctx.status['rssi_smoothed'],
                         'i': ctx.status['drone_in_gate']
                         })
-                if (len(json_data) >= 3):
+                if (len(chan['data']) >= 3):
+                    json_data = {
+                        'type': "rssi",
+                        'freq': chan['channel'],
+                        'data': chan['data'],
+                    }
                     session.send_text(json.dumps(json_data))
-                    json_data = []
+                    chan['data'] = []
         except Exception as e:
             print (e)
             traceback.print_exc()
@@ -264,6 +362,17 @@ def handle_api_v1_player_connect(json=JSONBody()):
             return {'status':"failed", 'msg':"Player added!"}
     ctx.players.append(Player(json["player"]))
     return {'status':"ok", 'msg':"Player added!"}
+
+@request_map("/api/v1/time-sync", method=["POST"])
+def handle_api_v1_time(json=JSONBody()):
+    if 'server' in json:
+        json['server'].append(round(time.time() * 1000))
+    else:
+        json['server'] = [round(time.time() * 1000)]
+
+    return json
+
+
 
 
 

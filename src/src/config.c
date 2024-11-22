@@ -24,6 +24,14 @@ static const char* TAG = "config";
 .offset = offsetof(struct config_data, var_name) \
 }
 
+#define config_meta_UINT32(var_name)                \
+{                                                   \
+.name = #var_name,                                  \
+.type = UINT32,                                     \
+.size = sizeof(uint32_t),                           \
+.offset = offsetof(struct config_data, var_name)    \
+}
+
 #define config_meta_MACADDR(var_name)         \
 {                                             \
 .name = #var_name,                          \
@@ -40,28 +48,42 @@ static const char* TAG = "config";
 .offset = offsetof(struct config_data, var_name)   \
 }
 
+#define config_meta_rssi(idx)                                 \
+        config_meta_STRING(rssi[idx].name, 32),               \
+        config_meta_UINT16(rssi[idx].freq),                   \
+        config_meta_UINT16(rssi[idx].peak),                   \
+        config_meta_UINT16(rssi[idx].filter),                 \
+        config_meta_UINT16(rssi[idx].offset_enter),           \
+        config_meta_UINT16(rssi[idx].offset_leave),           \
+        config_meta_UINT16(rssi[idx].calib_max_lap_count),    \
+        config_meta_UINT16(rssi[idx].calib_min_rssi_peak),    \
+        config_meta_UINT32(rssi[idx].led_color)
+
+
 const struct config_meta config_meta[] =
     {
-        config_meta_UINT16(freq),
-        config_meta_UINT16(rssi_peak),
-
-        config_meta_UINT16(rssi_filter),
-        config_meta_UINT16(rssi_offset_enter),
-        config_meta_UINT16(rssi_offset_leave),
-
-        config_meta_UINT16(calib_max_lap_count),
-        config_meta_UINT16(calib_min_rssi_peak),
+        config_meta_rssi(0),
+        config_meta_rssi(1),
+        config_meta_rssi(2),
+        config_meta_rssi(3),
+        config_meta_rssi(4),
+        config_meta_rssi(5),
+        config_meta_rssi(6),
+        config_meta_rssi(7),
 
         config_meta_MACADDR(elrs_uid),
         config_meta_UINT16(osd_x),
         config_meta_UINT16(osd_y),
         config_meta_STRING(osd_format, 32),
 
-        config_meta_STRING(player_name, 32),
-
         config_meta_UINT16(wifi_mode),
         config_meta_STRING(ssid, 32),
         config_meta_STRING(passphrase, 32),
+
+        config_meta_UINT16(game_mode),
+
+        config_meta_UINT16(led_num),
+        config_meta_UINT16(race_start_offset),
 
         {.name = NULL}
     };
@@ -81,23 +103,49 @@ static void initialize_nvs(void)
     }
 }
 
+esp_err_t cfg_verify(struct config * cfg)
+{
+    config_data_t *eeprom = &cfg->eeprom;
+
+    if (eeprom->rssi[0].offset_enter > 100) {
+        if (eeprom->rssi[0].peak > 0)
+            eeprom->rssi[0].offset_enter = eeprom->rssi[0].offset_enter * 100 / eeprom->rssi[0].peak;
+    }
+
+    if (eeprom->rssi[0].offset_leave > 100) {
+        if (eeprom->rssi[0].peak > 0)
+            eeprom->rssi[0].offset_leave = eeprom->rssi[0].offset_leave * 100 / eeprom->rssi[0].peak;
+    }
+
+    return ESP_OK;
+}
+
 static void cfg_data_init(struct config_data *eeprom)
 {
     memset(eeprom, 0, sizeof(*eeprom));
     memcpy(eeprom->magic, CFG_VERSION, 4);
-    eeprom->freq = 5658; // R1
+    eeprom->rssi[0].freq = 5658; // R1
     // eeprom->freq = 5917; // R8
-    eeprom->rssi_filter = 60;
-    eeprom->rssi_offset_enter = 80;
-    eeprom->rssi_offset_leave = 70;
+    eeprom->rssi[0].peak = 1100;
+    eeprom->rssi[0].filter = 60;
+    eeprom->rssi[0].offset_enter = 80;
+    eeprom->rssi[0].offset_leave = 70;
 
     eeprom->wifi_mode = CFG_WIFI_AP;
+#ifdef DEFAULT_SSID
+    strcpy(eeprom->ssid, DEFAULT_SSID);
+#else
     cfg_generate_random_ssid(eeprom->ssid, sizeof(eeprom->ssid));
+#endif
 
-    eeprom->calib_max_lap_count = 3;
-    eeprom->calib_min_rssi_peak = 600;
+    eeprom->rssi[0].calib_max_lap_count = 3;
+    eeprom->rssi[0].calib_min_rssi_peak = 600;
 
     strcpy(eeprom->osd_format, CFG_DEFAULT_OSD_FORMAT);
+
+    eeprom->game_mode = CFG_GAME_MODE_RACE;
+    eeprom->race_start_offset = 30;
+    eeprom->led_num = 25;
 }
 
 void cfg_generate_random_ssid(char *buf, size_t len)
@@ -214,9 +262,18 @@ void cfg_dump(struct config * cfg)
             uint16_t eeprom_value = *(uint16_t*)((unsigned char*)eeprom + cm->offset);
             uint16_t running_value = *(uint16_t*)((unsigned char*)running + cm->offset);
 
-            printf("  %s: %d", cm->name, eeprom_value);
+            printf("  %s: %"PRId16, cm->name, eeprom_value);
             if (eeprom_value != running_value)
-                printf(" [!= %d]", running_value);
+                printf(" [!= %"PRId16"]", running_value);
+            printf("\n");
+
+        } else if (cm->type == UINT32) {
+            uint32_t eeprom_value = *(uint32_t*)((unsigned char*)eeprom + cm->offset);
+            uint32_t running_value = *(uint32_t*)((unsigned char*)running + cm->offset);
+
+            printf("  %s: %"PRId32, cm->name, eeprom_value);
+            if (eeprom_value != running_value)
+                printf(" [!= %"PRId32"]", running_value);
             printf("\n");
 
         } else if (cm->type == MACADDR) {
@@ -253,12 +310,14 @@ bool cfg_json_encode(struct config_data * cfg, json_writer_t *jw)
         for(; cm->name != NULL; cm++) {
             if (cm->type == UINT16) {
                 jw_kv_int(jw, cm->name, *(uint16_t*)((unsigned char*)cfg + cm->offset));
+            } else if (cm->type == UINT32) {
+                jw_kv_int32(jw, cm->name, *(uint32_t*)((unsigned char*)cfg + cm->offset));
             } else if (cm->type == MACADDR) {
                 jw_kv_mac_in_dec(jw, cm->name, (char *) cfg + cm->offset);
             } else if (cm->type == STRING) {
                 jw_kv_str(jw, cm->name, (char *)cfg + cm->offset);
             } else {
-                printf("  %s: unkown type\n", cm->name);
+                printf("%s: unkown type of attribute %s\n",__func__, cm->name);
             }
         }
     }

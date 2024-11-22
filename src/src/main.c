@@ -20,12 +20,42 @@
 #include "simple_fpv_timer.h"
 #include "osd.h"
 #include "task_rssi.h"
+#include "task_led.h"
 
 
 static const char * TAG = "main";
 
 StaticSemaphore_t xMutexBuffer;
 static ctx_t ctx = {0};
+
+
+void print_mem_usage()
+{
+  struct cap2name {
+    unsigned int cap;
+    const char * name;
+  };
+  static const struct cap2name caps[] =  {
+    { MALLOC_CAP_8BIT,  "8Bit" },
+    { MALLOC_CAP_EXEC,  "EXEC" },
+    { MALLOC_CAP_32BIT, "32bit"},
+    { MALLOC_CAP_8BIT,  "8bit"},
+    { MALLOC_CAP_DMA,   "DMA" },
+    { 0, NULL },
+  };
+  const struct cap2name *cap;
+
+
+  for(cap = caps; cap->name; cap++){
+//    heap_caps_print_heap_info(cap->cap);
+
+    size_t total = heap_caps_get_total_size(cap->cap);
+    size_t free = heap_caps_get_free_size(cap->cap);
+    printf("MEMORY %7s used:%3u%% free:%5u total:%5u\n", cap->name,  ((total-free) * 100) / total, free, total );
+  }
+}
+
+
 
 void app_main() {
 
@@ -50,6 +80,7 @@ void app_main() {
         cfg_generate_random_ssid(ctx.cfg.eeprom.ssid, sizeof(ctx.cfg.eeprom.ssid));
     }
 
+
     sft_init(&ctx);
 
     captdnsInit();
@@ -63,10 +94,14 @@ void app_main() {
     sft_update_settings(&ctx);
     cfg_eeprom_to_running(&ctx.cfg);
 
+    task_led_init(&ctx);
     task_rssi_init(&ctx);
 
+    int i = 0;
     while (ctx.gui) {
         vTaskDelay(pdMS_TO_TICKS(1000));
+        if ((i++  % 30) == 0)
+            print_mem_usage();
     }
 
     ESP_ERROR_CHECK(gui_stop(&ctx));

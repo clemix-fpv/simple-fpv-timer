@@ -5,6 +5,7 @@ const gateway = `ws://${window.location.hostname}:${window.location.port}/ws/rss
 var websocket;
 const ctx =  {
     config: {},
+    time_offset: 0,
 };
 
 function init_infosocket() {
@@ -64,9 +65,12 @@ function onClose(event) {
 function onMessage(event) {
     try {
         json = JSON.parse(event.data);
-        on_rssi_update(json);
-        for (const e of json) {
-            graph_update(e);
+        if (json.type == "rssi") {
+            on_rssi_update(json.data);
+            spectrum_update(json);
+            for (const e of json.data) {
+                graph_update(e);
+            }
         }
 
     } catch (e) {
@@ -153,11 +157,12 @@ function notify_response(msg, data)
     }
 }
 
-function build_freq(key, value)
+function build_freq(desc, cfg_value)
 {
-    var h = '<div class="form-group" id="fg_settings_'+key+'">';
+    name = desc.name;
+    var h = '<div class="form-group" id="fg_settings_'+name+'">';
     h += '<fieldset>';
-    h += '<label class="form-label">Frequenz ('+value+'MHz)</label><br/>';
+    h += '<label class="form-label">Frequenz ('+cfg_value+'MHz)</label><br/>';
 
     var channels =  [
         { freq: 5658, name: "R1 (5658)"  },
@@ -169,10 +174,35 @@ function build_freq(key, value)
         { freq: 5880, name: "R7 (5880)"  },
         { freq: 5917, name: "R8 (5917)"  },
     ];
-    h += '<select name="'+key+'" class="custom-select custom-select-lg mb-3">';
+    h += '<select name="'+name+'" class="custom-select custom-select-lg mb-3">';
     $.each(channels, function(i, o){
-        var selected = (value == o.freq) ? "selected" : "";
+        var selected = (cfg_value == o.freq) ? "selected" : "";
         h += '<option value="'+o.freq+'" '+selected+' >'+o.name+'</option>';
+    });
+    h += '</select>';
+    h += '</fieldset>';
+    h += '</div>';
+
+    return h;
+}
+
+function build_options(desc, cfg_value)
+{
+    var name = desc.name;
+    var label = desc.label;
+    var options = desc.options;
+
+    var h = '<div class="form-group" id="fg_settings_'+name+'">';
+    h += '<fieldset>';
+    h += '<label class="form-label">'+label+'</label><br/>';
+
+    var channels =  [
+
+    ];
+    h += '<select name="'+name+'" class="custom-select custom-select-lg mb-3">';
+    $.each(options, function(i, o){
+        var selected = (cfg_value == o.value) ? "selected" : "";
+        h += '<option value="'+o.value+'" '+selected+' >'+o.name+'</option>';
     });
     h += '</select>';
     h += '</fieldset>';
@@ -207,10 +237,11 @@ function build_wifi_mode(key, value)
 function build_common_setting(o, value)
 {
     var key = o.name;
+    var label = o.label ? o.label : key;
     var s='<div class="form-group" id="fg_settings_'+key+'">' +
         '<fieldset>'+
-        '<label class="form-label" for="input_'+key+'">'+key;
-    if (o.help) {
+        '<label class="form-label" for="input_'+key+'">'+label;
+    if (o.help && 0) {
         s += '<a style="margin: 0 5px" href="#" data-toggle="tooltip" data-trigger="click" title="'+o.help+'">'+
             '<img src="/question-circle.svg"/>'
             '</a>';
@@ -324,6 +355,14 @@ function objectifyForm(formArray) {
     return returnArray;
 }
 
+function build_led_color(desc, cfg_val)
+{
+    var color = cfg_val.toString(16).padStart(6, '0');
+    var h = '<label for="exampleColorInput" class="form-label">'+ desc.label +'</label>';
+    h += '<input type="color" class="form-control form-control-color" value="#'+color+'" title="Choose your color" name="'+desc.name+'">';
+    return h;
+}
+
 function build_settings(config)
 {
     var s = $('#settings');
@@ -332,36 +371,67 @@ function build_settings(config)
     var form_groups = [
         {
             name: "Player settings",
-            elements: ["freq", "player_name"]
+            elements: [
+                {
+                    name: "rssi[0].freq",
+                    label: "Frequency",
+                    draw_fn: build_options,
+                    options: [
+                        { value: 5658, name: "R1 (5658)"  },
+                        { value: 5695, name: "R2 (5695)"  },
+                        { value: 5732, name: "R3 (5732)"  },
+                        { value: 5769, name: "R4 (5769)"  },
+                        { value: 5806, name: "R5 (5806)"  },
+                        { value: 5843, name: "R6 (5843)"  },
+                        { value: 5880, name: "R7 (5880)"  },
+                        { value: 5917, name: "R8 (5917)"  },
+                    ],
+                },
+                {
+                    name: "rssi[0].name",
+                    label: "Player Name",
+                },
+                {
+                    name: "rssi[0].led_color",
+                    label: "LED color",
+                    draw_fn: build_led_color,
+                }
+            ]
         },
         {
             name: "Callibration/Meassurment",
             elements: [
                 {
-                    name: "rssi_peak",
+                    label: "RSSI Peak value (default: 1100)",
+                    name: "rssi[0].peak",
                     help: "The expected RSSI maximum, when the drone fly through the gate."
                 },
                 {
-                    name: "rssi_filter",
+                    name: "rssi[0].filter",
+                    label: "Filter",
                     help: "Smooth the RSSI input signals. Range is 1-100, a value near" +
                           " to 1 smooth more, a value of 100 keeps the raw RSSI value."
                 },
                 {
-                    name: "rssi_offset_enter",
+                    label: "Offset enter (in %)",
+                    name: "rssi[0].offset_enter",
                     help: "The percentage of 'RSSI-Peak' to count a drone as entered" +
                           " the gate. The range is 50-100 (Default: 80)"
                 },
                 {
-                    name: "rssi_offset_leave",
+                    label: "Offset leave (in %)",
+                    name: "rssi[0].offset_leave",
                     help: "The percentage of 'RSSI-Peak' to count a drone as leaved the"+
                           " gate. The range is 50-100 (Default: 70)"
                 },
                 {
-                    name: "calib_max_lap_count",
+                    label: "Calibration max lap count",
+                    name: "rssi[0].calib_max_lap_count",
                     help: "The number of laps to be detected to finish the calibration."
                 },
                 {
-                    name: "calib_min_rssi_peak",
+                    label: "Calibration min rssi peak",
+                    name: "rssi[0].calib_min_rssi_peak",
                     help: "The minimum RSSI value to detect a 'drone enter gate' during" +
                           " calibration."
                 }
@@ -374,6 +444,21 @@ function build_settings(config)
         {
             name: "WiFi",
             elements: ["wifi_mode", "ssid", "passphrase"]
+        },
+        {
+            name: "General",
+            elements: [
+                {
+                    name: "game_mode",
+                    label: "Game Mode",
+                    draw_fn: build_options,
+                    options: [
+                        {value: 0, name: 'RACE'},
+                        {value: 1, name: 'CAPTURE THE FLAG'},
+                        {value: 2, name: 'SPECTROMETER'},
+                    ]
+                }
+            ]
         }
     ];
 
@@ -386,8 +471,8 @@ function build_settings(config)
             var h = "";
             var o = typeof elem == 'object' ? elem : {name: elem};
             var name = o.name;
-            if (name == "freq") {
-                h = build_freq(name, config[name]);
+            if (o.draw_fn) {
+                h = o.draw_fn(o, config[name], config);
             } else if (name == "osd_test") {
                 h = build_osd_test();
             } else if (name == "osd_format") {
@@ -420,10 +505,10 @@ function build_settings(config)
 
     });
 
-    $('a[data-toggle="tooltip"]').click(function(e) {
-        e.tooltip("toggle");
-        return false;
-    });
+    //$('a[data-toggle="tooltip"]').click(function(e) {
+    //    e.tooltip("toggle");
+    //    return false;
+    //});
 
     $('a[data-toggle="tooltip"]').tooltip({
         animated: 'fade',
@@ -431,6 +516,11 @@ function build_settings(config)
         trigger: 'click'
     });
 
+    //$('a[data-toggle="tooltip"]').on('show.bs.tooltip', function (e) {
+    //    $('a[data-toggle="tooltip"]').each( function () {
+    //        $(this).tooltip("hide");
+    //    });
+    //});
 }
 
 function update_settings()
@@ -464,18 +554,17 @@ function update_laps()
         .done(function(data) {
             var stats = data.status;
 
-            if (stats.in_calib_mode) {
+            if (stats.in_calib_mode[0]) {
                 $('#b_cali').hide();
                 $('#p_cali').show();
                 var p_bar = $('div#p_cali > div');
-                var w = Math.floor(stats.in_calib_lap_count / data.config.calib_max_lap_count * 100);
+                var w = Math.floor(stats.in_calib_lap_count[0] / data.config.calib_max_lap_count[0] * 100);
                 w = w < 10 ? 10: w;
                 p_bar.css("width", w + "%");
                 p_bar.attr('aria-valuemin', 0);
-                p_bar.attr('aria-valuemax', data.config.calib_max_lap_count);
-                p_bar.attr('aria-valuenow', stats.in_calib_lap_count);
-                p_bar.text(stats.in_calib_lap_count + "/" + data.config.calib_max_lap_count + "laps"+
-                    " rssi-peak:" + stats.rssi_peak);
+                p_bar.attr('aria-valuemax', data.config.calib_max_lap_count[0]);
+                p_bar.attr('aria-valuenow', stats.in_calib_lap_count[0]);
+                p_bar.text(stats.in_calib_lap_count[0] + "/" + data.config.calib_max_lap_count[0] + "laps");
             } else {
                 $('#b_cali').show();
                 $('#p_cali').hide();
@@ -539,6 +628,11 @@ function update_players()
     })
         .done(function(data) {
             var stats = data.status;
+            if (!stats) {
+                console.error("Failed to get stats!");
+                console.debug(data);
+                return;
+            }
 
             var cards = [];
             $.each(stats.players, function(i,p){
@@ -664,9 +758,6 @@ let uplot = null;
 let time0 = 0;
 function graph(id)
 {
-    if (uplot)
-        return uplot;
-
     let xs = [1,2,3,4,5,6,7,];
     let vals = [-10,-9,-8,-7];
 
@@ -741,6 +832,7 @@ function graph_update(json)
 {
     let data = uplot._data;
     let timeduration = 10000;
+    console.debug("graph_update");
 
     /* the order of the data is important, as we would like to see the
      * rssi and rssi-smoothed in foreground */
@@ -768,10 +860,12 @@ function graph_update(json)
     }
 
     /* update horizontal lines for RSSI thresholds from configuration */
-    if (ctx.config && ctx.config.rssi_peak && data[0].length > 0) {
-        const rssi_peak = ctx.config.rssi_peak;
-        const rssi_enter = Math.floor(rssi_peak * (ctx.config.rssi_offset_enter / 100));
-        const rssi_leave = Math.floor(rssi_peak * (ctx.config.rssi_offset_leave / 100));
+    let rssi_peak = ctx.config ? ctx.config['rssi[0].peak'] : 0;
+    if (rssi_peak && data[0].length > 0) {
+        let offset_enter = ctx.config['rssi[0].offset_enter'];
+        let offset_leave = ctx.config['rssi[0].offset_leave'];
+        const rssi_enter = Math.floor(rssi_peak * (offset_enter / 100));
+        const rssi_leave = Math.floor(rssi_peak * (offset_leave / 100));
         len = data[0].length;
         if (data[idx_rssi_peak].length != len || data[idx_rssi_peak][0] != rssi_peak)
             data[idx_rssi_peak] = Array(len).fill(rssi_peak);
@@ -818,6 +912,176 @@ function graph_update(json)
 
     uplot.setData(data);
 }
+
+let uplot_spectrum = null;
+const spectrum_data = [];
+
+
+function spectrum_update_data()
+{
+    var data = new Array();
+
+    /* Build the x-Axes */
+    var x = new Array();
+    x = spectrum_data.map((x) => {
+            return x.freq;
+        });
+    x.sort();
+
+    let diff = 40;
+    if (x.length > 1) {
+        for (let i = 1; i < x.length; i++) {
+            diff += x[i] - x[i-1];
+        }
+        diff /= x.length -1;
+    }
+    x.unshift(x[0] - diff);
+    x.push(x[x.length-1] + diff);
+
+
+    /* build the values for series 1 */
+    s1 = new Array();
+    s2 = new Array();
+    s3 = new Array();
+
+    var sec_1 = (Date.now()) - 1000;
+    var sec_2 = (Date.now()) - 2000;
+    var sec_3 = (Date.now()) - 3000;
+
+
+    x.forEach((freq) => {
+        e = spectrum_data.find(x => x.freq == freq);
+        if (e) {
+            let i = 0;
+            for (; i < e.data.length; i++) {
+                const element = e.data[i];
+                if (element.time >= sec_1) {
+                    s1.push(element.rssi);
+                    break;
+                }
+            }
+            if (i >= e.data.length) {
+                s1.push(0);
+                i=0;
+            }
+
+            for (; i < e.data.length; i++) {
+                const element = e.data[i];
+                if (element.time < sec_1 && element.time > sec_2) {
+                    s2.push(element.rssi);
+                    break;
+                }
+            }
+            if (i >= e.data.length) {
+                s2.push(0);
+                i=0;
+            }
+
+            for (; i < e.data.length; i++) {
+                const element = e.data[i];
+                if (element.time < sec_2 && element.time > sec_3) {
+                    s3.push(element.rssi);
+                    break;
+                }
+            }
+            if (i >= e.data.length) {
+                s3.push(0);
+            }
+        } else {
+            s1.push(0);
+            s2.push(0);
+            s3.push(0);
+        }
+    });
+
+    ret = new Array();
+    ret.push(x);
+    ret.push(s3);
+    ret.push(s2);
+    ret.push(s1);
+    return ret;
+}
+
+function spectrum(id)
+{
+    let e = $('#' + id);
+    const opts = {
+        height: 600,
+        width: e.innerWidth(),
+        title: "Spectrum",
+        scales: {
+            x: {
+                time: false,
+            },
+            y: {
+                auto:false,
+                range: [100, 1200],
+            }
+        },
+        series: [
+            {
+            },
+            {
+                paths: uPlot.paths.bars(),
+                fill: "rgba(150,0,0,0.1)",
+            },
+            {
+                paths: uPlot.paths.bars(),
+                fill: "rgba(200,0,0,0.3)",
+            },
+
+            {
+                paths: uPlot.paths.bars(),
+                fill: "rgba(255,0,0,1.0)",
+            },
+        ],
+    };
+
+
+    uplot_spectrum = new uPlot(opts, [[],[],[],[]], document.getElementById(id));
+    return uplot_spectrum;
+}
+
+var spectrum_refresh_timer = false;
+function spectrum_refresh()
+{
+    if (!spectrum_refresh_timer) {
+        spectrum_refresh_timer = true;
+        setTimeout(spectrum_refresh_do, 500);
+        return;
+    }
+}
+
+function spectrum_refresh_do()
+{
+    var data = spectrum_update_data();
+    if (uplot_spectrum) {
+        uplot_spectrum.setData(data);
+    }
+    spectrum_refresh_timer = false;
+}
+
+function spectrum_update(ev)
+{
+    if (!ev || !ev.freq) {
+        return;
+    }
+    e = spectrum_data.find(x => x.freq == ev.freq);
+    if (!e) {
+        e = {freq: ev.freq, data: []};
+        spectrum_data.push(e);
+    }
+
+    for (const measurement of json.data) {
+        e.data.unshift({
+            time: measurement.t + ctx.time_offset,
+            rssi: measurement.r,
+        })
+        e.data.splice(10,e.data.length - 10);
+    }
+
+    spectrum_refresh();
+ }
 
 function ival(obj)
 {
@@ -932,7 +1196,9 @@ function update_debug()
             dbg.append(build_card('Status:', status_table));
 
             dbg.append(build_card('Graph:', "<div id='id_graph'/>"));
+            dbg.append(build_card('Graph:', "<div id='id_spectrum'/>"));
             graph("id_graph");
+            spectrum("id_spectrum");
         });
 
     if (tab_name == 'debug') {
@@ -940,23 +1206,75 @@ function update_debug()
     }
 }
 
+function sync_time_finish(data)
+{
+    var c0 = data.client[0];
+    var c1 = data.client[1];
+    var c2 = data.client[2];
+    var c3 = data.client[3];
+    var s0 = data.server[0];
+    var s1 = data.server[1];
+    var s2 = data.server[2];
+    var s3 = data.server[3];
+
+    var rtt1 = (c1-c0 + s1-s0) / 4;      // how long it takes to get the package to server
+    var offset1 = c1 - (s1 - rtt1);
+
+    var rtt2 = (c3-c2 + s3-s2) / 4;      // how long it takes to get the package to server
+    var offset2 = c2 - (s2 - rtt2);
+
+    var offset = (offset1 + offset2) / 2;
+    return Math.round(offset);
+}
+
+function sync_time(data) {
+    if (! data) {
+        data = { 'client': [Date.now()]};
+    }
+
+    $.ajax({
+        url: '/api/v1/time-sync',
+        type: 'POST',
+        contentType: "application/json",
+        data: JSON.stringify(data),
+    }).always(function(resp){
+            if (resp.client && resp.server) {
+                if (resp.client.length < 4) {
+                    resp.client.push(Date.now());
+                    sync_time(resp);
+                } else {
+                    ctx.time_offset = sync_time_finish(resp);
+                }
+            }
+    });
+}
+
+function hide_all_tooltips()
+{
+    $('.tooltip').hide();
+}
+
 $('.nav a[href$=settings]').on('click', function(e){
     tab_name = "settings";
+    hide_all_tooltips();
     update_settings();
 });
 
 $('.nav a[href$=players]').on('click', function(e){
     tab_name = "players";
+    hide_all_tooltips();
     update_players();
 });
 
 $('.nav a[href$=laps]').on('click', function(e){
     tab_name = "laps";
+    hide_all_tooltips();
     update_laps();
 });
 
 $('.nav a[href$=debug]').on('click', function(e){
     tab_name = "debug";
+    hide_all_tooltips();
     update_debug();
     init_websocket();
 });
@@ -968,13 +1286,18 @@ $('.btn_enable_sound').click(function(){
     $('.btn_enable_sound').attr('title', "Disable sounds");
 });
 
+/* this is called on page load */
 $(function () {
     update_laps();
+
     $('[data-toggle="tooltip"]').tooltip({trigger: 'hover'});
     Howler.autoUnlock = false;
     sound = new Howl({
         src: ['round.ogg']
     });
+
+    sync_time();
+
 
 });
 
