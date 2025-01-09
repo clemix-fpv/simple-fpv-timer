@@ -24,7 +24,7 @@
 
 #define CFG_MAX_FREQ            8
 
-typedef enum { CFG_WIFI_AP, CFG_WIFI_STA} cfg_wifi_mode_enum;
+typedef enum { CFG_WIFI_AP = 0, CFG_WIFI_STA = 1} cfg_wifi_mode_enum;
 typedef struct config_rssi config_rssi_t;
 typedef struct config_data config_data_t;
 
