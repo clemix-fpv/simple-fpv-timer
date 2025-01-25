@@ -26,6 +26,7 @@ typedef uint32_t color_t;
 #define COLOR_GET_BLUE(color)   ((color) & 0xff)
 
 esp_err_t led_init(led_t *led, unsigned int gpio_pin, unsigned int number_of_leds);
+esp_err_t led_set_num_leds(led_t *led, uint32_t num_leds);
 esp_err_t led_refresh_all(led_t *led, color_t color);
 esp_err_t led_set(led_t *led, uint32_t idx_start, uint32_t num, color_t color);
 esp_err_t led_refresh(led_t *led);

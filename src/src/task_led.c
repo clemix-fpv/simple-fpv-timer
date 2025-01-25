@@ -1,3 +1,4 @@
+#include <stdint.h>
 #include <string.h>
 #include <simple_fpv_timer.h>
 #include <sys/types.h>
@@ -6,7 +7,10 @@
 #include "led.h"
 #include "timer.h"
 
+#define LED_GPIO 2
+
 typedef enum {
+    LED_MODE_BOOT,
     LED_MODE_SOLID,
     LED_MODE_RACE_START,
     LED_MODE_CALIBRATION,
@@ -30,8 +34,16 @@ typedef struct {
         millis_t start;
         millis_t offset;
         esp_timer_handle_t timer;
-
     } race_start;
+
+    struct {
+        uint32_t num_leds_orig;
+        color_t colors[8];
+        uint16_t num_colors;
+        uint16_t color_idx;
+        millis_t duration;
+        esp_timer_handle_t timer;
+    } boot;
 } task_led_t;
 
 static void task_led_show_rssi(task_led_t *tskled, int rssi)
@@ -162,6 +174,54 @@ void task_led_on_start_race(void* ctx, esp_event_base_t base, int32_t id, void* 
 }
 
 
+void task_led_on_boot_timer(void *arg)
+{
+    task_led_t *task = (task_led_t*) arg;
+
+    if (task->mode != LED_MODE_BOOT)
+        return;
+
+    if (task->boot.color_idx < task->boot.num_colors) {
+        led_refresh_all(&task->led, task->boot.colors[task->boot.color_idx]);
+        task->boot.color_idx ++;
+        esp_timer_start_once(task->boot.timer, task->boot.duration * 1000);
+    } else {
+
+        led_set_num_leds(&task->led, task->boot.num_leds_orig);
+    }
+}
+
+void task_led_start_boot(task_led_t* task)
+{
+
+    task->mode = LED_MODE_BOOT;
+    task->boot.num_leds_orig = task->led.num_leds;
+    task->boot.colors[0] = COLOR_RED;
+    task->boot.colors[1] = COLOR_GREEN;
+    task->boot.colors[2] = COLOR_BLUE;
+    task->boot.colors[3] = COLOR(252, 186, 3); /* yellow */
+    task->boot.colors[4] = COLOR(207, 3, 252); /* purple */
+    task->boot.colors[5] = COLOR(3, 252, 252); /* light blue */
+    task->boot.colors[6] = COLOR(252, 3, 119); /* pink */
+    task->boot.colors[7] = COLOR(252, 102,3 ); /* orange */
+
+    task->boot.num_colors = 8;
+    task->boot.color_idx = 0;
+    task->boot.duration = 3000;
+    if (task->boot.timer) {
+        esp_timer_stop(task->boot.timer);
+    } else {
+        const esp_timer_create_args_t timer_args = {
+            .callback = &task_led_on_boot_timer,
+            .arg = (void*) task,
+            .name = "led-boot"
+        };
+        ESP_ERROR_CHECK(esp_timer_create(&timer_args, &task->boot.timer));
+    }
+    led_set_num_leds(&task->led, max(task->boot.num_leds_orig, 256));
+    esp_timer_start_once(task->boot.timer, 1);
+}
+
 void task_led_init(const ctx_t *ctx)
 {
     static task_led_t led = {0};
@@ -171,10 +231,14 @@ void task_led_init(const ctx_t *ctx)
     led.rssi_max = ctx->cfg.eeprom.rssi[0].peak;
     led.race_start.offset = ctx->cfg.eeprom.race_start_offset;
 
-    led_init(&led.led, 2, ctx->cfg.eeprom.led_num);
+    led_init(&led.led, LED_GPIO, ctx->cfg.eeprom.led_num);
+
+
 
     esp_event_handler_register(SFT_EVENT, SFT_EVENT_RSSI_UPDATE, task_led_on_rssi_update, &led);
     esp_event_handler_register(SFT_EVENT, SFT_EVENT_START_RACE, task_led_on_start_race, &led);
+
+    task_led_start_boot(&led);
 }
 
 
