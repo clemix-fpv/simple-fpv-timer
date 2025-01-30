@@ -144,6 +144,16 @@ static void task_rssi_process_rssi(task_rssi_t *tsk, sft_timer_t *gate_blocked, 
         rssi->in_gate_peak_rssi = rssi->smoothed;
         rssi->in_gate_peak_millis = get_millis();
 
+        sft_event_drone_enter_t e = {
+            .freq = rssi->freq,
+            .abs_time_ms = rssi->in_gate_peak_millis,
+            .rssi = rssi->in_gate_peak_rssi,
+        };
+
+        ESP_ERROR_CHECK(
+            esp_event_post(SFT_EVENT, SFT_EVENT_DRONE_ENTER,
+                           &e, sizeof(e), pdMS_TO_TICKS(500)));
+
     } else if (rssi->drone_in_gate &&
             timer_over(gate_blocked, NULL) &&
             rssi->leave > rssi->smoothed) {

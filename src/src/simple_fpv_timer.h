@@ -25,7 +25,6 @@
 typedef enum {
     SFT_EVENT_DRONE_PASSED,
     SFT_EVENT_DRONE_ENTER,
-    SFT_EVENT_DRONE_LEAVE,
     SFT_EVENT_CFG_CHANGED,
     SFT_EVENT_RSSI_UPDATE,
     SFT_EVENT_START_RACE,
@@ -36,6 +35,8 @@ typedef struct {
     millis_t abs_time_ms;
     int rssi;
 } sft_event_drone_passed_t;
+
+    typedef sft_event_drone_passed_t sft_event_drone_enter_t;
 
 typedef struct {
     config_data_t cfg;
@@ -88,6 +89,16 @@ typedef struct lap_counter_s {
     player_t players[MAX_PLAYER];
 
 } lap_counter_t;
+
+
+typedef struct cft_s {
+
+    struct {
+        millis_t sum;
+        millis_t enter;
+        unsigned int leave_counts;
+    } team[MAX_PLAYER];
+} cft_t;
 
 typedef struct {
     config_t cfg;

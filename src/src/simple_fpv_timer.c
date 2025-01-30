@@ -169,7 +169,7 @@ lap_t * sft_player_get_fastes_lap(player_t *p)
     return fastes;
 }
 
-void sft_on_drone_passed(ctx_t *ctx, int freq, int rssi, millis_t abs_time_ms)
+void sft_on_drone_passed_race(ctx_t *ctx, int freq, int rssi, millis_t abs_time_ms)
 {
     lap_counter_t *lc = &ctx->lc;
     config_t *cfg = &ctx->cfg;
@@ -227,6 +227,55 @@ void sft_on_drone_passed(ctx_t *ctx, int freq, int rssi, millis_t abs_time_ms)
         last_lap_time = abs_time_ms;
     }
 }
+
+void sft_on_drone_passed_ctf(ctx_t *ctx, int freq, int rssi, millis_t abs_time_ms)
+{
+
+}
+
+void sft_on_drone_passed(ctx_t *ctx, int freq, int rssi, millis_t abs_time_ms)
+{
+    switch (ctx->cfg.running.game_mode) {
+        case CFG_GAME_MODE_RACE:
+            sft_on_drone_passed_race(ctx, freq,rssi, abs_time_ms);
+            break;
+        case CFG_GAME_MODE_CTF:
+            sft_on_drone_passed_ctf(ctx, freq,rssi, abs_time_ms);
+            break;
+        case CFG_GAME_MODE_SPECTRUM:
+        default:
+            break;
+    }
+}
+
+void sft_on_drone_enter_ctf(ctx_t *ctx, int freq, int rssi, millis_t abs_time_ms)
+{
+    config_t *cfg = &ctx->cfg;
+    static millis_t last_lap_time = 0;
+    int idx = 0;
+
+    for (idx = 0; idx < CFG_MAX_FREQ; idx++) {
+        if (cfg->running.rssi[idx].freq == freq)
+            break;
+    }
+
+    /* use idx to get the corresponding ctf data */
+
+}
+
+void sft_on_drone_enter(ctx_t *ctx, int freq, int rssi, millis_t abs_time_ms)
+{
+    switch (ctx->cfg.running.game_mode) {
+        case CFG_GAME_MODE_CTF:
+            sft_on_drone_enter_ctf(ctx, freq,rssi, abs_time_ms);
+            break;
+        case CFG_GAME_MODE_RACE:
+        case CFG_GAME_MODE_SPECTRUM:
+        default:
+            break;
+    }
+}
+
 
 static void dump_pkt(uint8_t *buf, uint8_t len)
 {
@@ -434,10 +483,19 @@ void sft_event_drone_passed(void* ctx, esp_event_base_t base, int32_t id, void* 
     sft_on_drone_passed(ctx, ev->freq, ev->rssi, ev->abs_time_ms);
 }
 
+void sft_event_drone_enter(void* ctx, esp_event_base_t base, int32_t id, void* event_data)
+{
+    sft_event_drone_enter_t *ev = (sft_event_drone_passed_t*)event_data;
+    sft_on_drone_enter(ctx, ev->freq, ev->rssi, ev->abs_time_ms);
+}
+
+
+
 void sft_init(ctx_t *ctx)
 {
     esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, ip_event_handler, ctx);
     esp_event_handler_register(SFT_EVENT, SFT_EVENT_DRONE_PASSED, sft_event_drone_passed, ctx);
+    esp_event_handler_register(SFT_EVENT, SFT_EVENT_DRONE_ENTER, sft_event_drone_enter, ctx);
 }
 
 

@@ -14,6 +14,7 @@ typedef enum {
     LED_MODE_SOLID,
     LED_MODE_RACE_START,
     LED_MODE_CALIBRATION,
+    LED_MODE_CTF,
 } led_mode_t;
 
 typedef enum {
@@ -21,18 +22,22 @@ typedef enum {
     LED_RACE_START_COUNTDOWN,
 } led_race_start_state_t;
 
-typedef struct {
+typedef struct task_led_s task_led_t;
+
+struct task_led_s {
     led_t led;
-    int game_mode;
     int rssi_max;
 
     led_mode_t mode;
+    void(*stop_mode_fn)(task_led_t*);
+
+    config_data_t cfg;
 
     struct {
         led_race_start_state_t state;
         int countdown;
-        millis_t start;
         millis_t offset;
+        millis_t start;
         esp_timer_handle_t timer;
     } race_start;
 
@@ -44,7 +49,17 @@ typedef struct {
         millis_t duration;
         esp_timer_handle_t timer;
     } boot;
-} task_led_t;
+};
+
+
+static void task_led_set_mode(task_led_t *task, led_mode_t new_mode, void(*stop_mode_fn)(task_led_t *))
+{
+    if (task->stop_mode_fn) {
+        task->stop_mode_fn(task);
+    }
+    task->stop_mode_fn = stop_mode_fn;
+    task->mode = new_mode;
+}
 
 static void task_led_show_rssi(task_led_t *tskled, int rssi)
 {
@@ -86,15 +101,7 @@ void task_led_on_rssi_update(void* ctx, esp_event_base_t base, int32_t id, void*
         rssi += ev->data[i].rssi;
     rssi /= ev->cnt;
 
-    switch(task->game_mode) {
-        case CFG_GAME_MODE_RACE:
-            task_led_show_rssi(task, rssi);
-        break;
-        default:
-        /* NOTHING */
-        ;
-    }
-
+    task_led_show_rssi(task, rssi);
 }
 
 static void task_led_on_race_start_timer(void* arg)
@@ -116,7 +123,6 @@ static void task_led_on_race_start_timer(void* arg)
     if (task->race_start.state == LED_RACE_START_OFFSET_COUNTDOWN) {
         if (elapsed < offset) {
             uint32_t off_leds = (elapsed * num_leds) / offset;
-            printf("off_leds: %"PRIu32"\n", off_leds);
 
             led_set(&task->led, 0 , off_leds, 0);
             led_refresh(&task->led);
@@ -141,7 +147,14 @@ static void task_led_on_race_start_timer(void* arg)
         esp_timer_start_once(task->race_start.timer, 10 * 1000 * 1000);
 
     } else  if (task->race_start.countdown >= 4){
-        task->mode = LED_MODE_SOLID;
+        task_led_set_mode(task, LED_MODE_SOLID, NULL);
+    }
+}
+
+static void task_led_race_stop(task_led_t* task) {
+    if (task->race_start.timer) {
+        esp_timer_stop(task->race_start.timer);
+        task->race_start.timer = NULL;
     }
 }
 
@@ -151,7 +164,7 @@ void task_led_on_start_race(void* ctx, esp_event_base_t base, int32_t id, void* 
     sft_event_start_race_t *ev = (sft_event_start_race_t*) event_data;
 
 
-    task->mode = LED_MODE_RACE_START;
+    task_led_set_mode(task, LED_MODE_RACE_START, task_led_race_stop);
     task->race_start.state = LED_RACE_START_OFFSET_COUNTDOWN;
     task->race_start.offset = ev->offset;
     task->race_start.start = get_millis();
@@ -173,8 +186,42 @@ void task_led_on_start_race(void* ctx, esp_event_base_t base, int32_t id, void* 
     esp_timer_start_once(task->race_start.timer, 1 * 1000 * 1000);
 }
 
+void task_led_ctf_stop(task_led_t *task)
+{
 
-void task_led_on_boot_timer(void *arg)
+}
+
+void task_led_ctf_start(task_led_t *task)
+{
+    led_off(&task->led);
+    task_led_set_mode(task, LED_MODE_CTF, task_led_ctf_stop);
+}
+
+
+void task_led_on_cfg_change(void* ctx, esp_event_base_t base, int32_t id, void* event_data)
+{
+    task_led_t *task = (task_led_t*) ctx;
+    sft_event_cfg_changed_t *ev = (sft_event_cfg_changed_t*) event_data;
+
+    task->cfg = ev->cfg;
+
+    if (task->cfg.game_mode == CFG_GAME_MODE_CTF && task->mode != LED_MODE_CTF) {
+        // TODO  change LED MODE
+        task_led_ctf_start(task);
+    }
+}
+
+void task_led_boot_stop(task_led_t* task)
+{
+    if (task->boot.timer) {
+        esp_timer_stop(task->boot.timer);
+        task->boot.timer = NULL;
+    }
+    task->boot.color_idx = task->boot.num_colors;
+    led_set_num_leds(&task->led, task->boot.num_leds_orig);
+}
+
+void task_led_boot_on_timer(void *arg)
 {
     task_led_t *task = (task_led_t*) arg;
 
@@ -186,15 +233,13 @@ void task_led_on_boot_timer(void *arg)
         task->boot.color_idx ++;
         esp_timer_start_once(task->boot.timer, task->boot.duration * 1000);
     } else {
-
-        led_set_num_leds(&task->led, task->boot.num_leds_orig);
+        task_led_boot_stop(task);
     }
 }
 
-void task_led_start_boot(task_led_t* task)
+void task_led_boot_start(task_led_t* task)
 {
 
-    task->mode = LED_MODE_BOOT;
     task->boot.num_leds_orig = task->led.num_leds;
     task->boot.colors[0] = COLOR_RED;
     task->boot.colors[1] = COLOR_GREEN;
@@ -212,7 +257,7 @@ void task_led_start_boot(task_led_t* task)
         esp_timer_stop(task->boot.timer);
     } else {
         const esp_timer_create_args_t timer_args = {
-            .callback = &task_led_on_boot_timer,
+            .callback = &task_led_boot_on_timer,
             .arg = (void*) task,
             .name = "led-boot"
         };
@@ -220,25 +265,25 @@ void task_led_start_boot(task_led_t* task)
     }
     led_set_num_leds(&task->led, max(task->boot.num_leds_orig, 256));
     esp_timer_start_once(task->boot.timer, 1);
+
+    task_led_set_mode(task, LED_MODE_BOOT, task_led_boot_stop);
 }
 
 void task_led_init(const ctx_t *ctx)
 {
     static task_led_t led = {0};
-    memset (&led, 0, sizeof(led));
 
-    led.game_mode = ctx->cfg.eeprom.game_mode;
+    led.cfg = ctx->cfg.eeprom;
+
     led.rssi_max = ctx->cfg.eeprom.rssi[0].peak;
-    led.race_start.offset = ctx->cfg.eeprom.race_start_offset;
 
     led_init(&led.led, LED_GPIO, ctx->cfg.eeprom.led_num);
 
-
-
     esp_event_handler_register(SFT_EVENT, SFT_EVENT_RSSI_UPDATE, task_led_on_rssi_update, &led);
     esp_event_handler_register(SFT_EVENT, SFT_EVENT_START_RACE, task_led_on_start_race, &led);
+    esp_event_handler_register(SFT_EVENT, SFT_EVENT_CFG_CHANGED, task_led_on_cfg_change, &led);
 
-    task_led_start_boot(&led);
+    task_led_boot_start(&led);
 }
 
 
