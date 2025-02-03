@@ -6,6 +6,7 @@
 #include <lwip/ip4_addr.h>
 #include <esp_http_server.h>
 #include <stdbool.h>
+#include "esp_timer.h"
 #include "timer.h"
 #include "wifi.h"
 #include "config.h"
@@ -28,6 +29,10 @@ typedef enum {
     SFT_EVENT_CFG_CHANGED,
     SFT_EVENT_RSSI_UPDATE,
     SFT_EVENT_START_RACE,
+    SFT_EVENT_LED_COMMAND,
+    SFT_EVENT_CTF_CAPTURED,
+    SFT_EVENT_CTF_LOST,
+    SFT_EVENT_CTF_CONFLICT,
 } sft_event_t;
 
 typedef struct {
@@ -58,6 +63,30 @@ typedef struct {
     millis_t offset;
 } sft_event_start_race_t;
 
+
+enum sft_led_command_type_e {
+    SFT_LED_CMD_TYPE_PERCENT = 0, /* default */
+    SFT_LED_CMD_TYPE_PERCENT_TRANSITION = 1, /* default */
+    SFT_LED_CMD_TYPE_NUM,
+    SFT_LED_CMD_TYPE_NUM_TRANSITION,
+};
+
+typedef struct {
+    color_t color;
+    enum sft_led_command_type_e type;
+    uint16_t offset;
+    uint16_t num;
+    millis_t duration;
+    /* transition */
+    uint16_t offset_end;
+    uint16_t num_end;
+    uint16_t update_interval;
+} sft_led_command_t;
+
+typedef struct {
+    unsigned int num;
+    sft_led_command_t commands[];
+} sft_event_led_command_t;
 
 ESP_EVENT_DECLARE_BASE(SFT_EVENT);
 
@@ -91,14 +120,19 @@ typedef struct lap_counter_s {
 } lap_counter_t;
 
 
-typedef struct cft_s {
+typedef struct {
+    char name[MAX_NAME_LEN];
+    millis_t sum;
+    millis_t enter;
+    millis_t captured_ms;
+} ctf_team_t;
 
-    struct {
-        millis_t sum;
-        millis_t enter;
-        unsigned int leave_counts;
-    } team[MAX_PLAYER];
-} cft_t;
+typedef struct cft_s {
+    ctf_team_t *current;
+    ctf_team_t teams[MAX_PLAYER];
+
+    esp_timer_handle_t timer;
+} ctf_t;
 
 typedef struct {
     config_t cfg;
@@ -108,6 +142,7 @@ typedef struct {
 
     wifi_t wifi;
     lap_counter_t lc;
+    ctf_t ctf;
     led_t led;
 
     ip4_addr_t server_ipv4;

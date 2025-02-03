@@ -22,9 +22,7 @@ typedef struct {
 
     /* transition */
     uint16_t offset_end;
-    uint16_t offset_current;
     uint16_t num_end;
-    uint16_t num_current;
     millis_t start_time;
     uint16_t update_interval;
 
@@ -236,7 +234,8 @@ static bool task_led_command_append(task_led_t *task, led_command_t * cmds, uint
     memcpy(&task->stack[task->stack_sz], cmds, num * sizeof(cmds[0]));
     task->stack_sz += num;
 
-    task_led_command_process(task);
+    if (!esp_timer_is_active(task->timer))
+        task_led_command_process(task);
     return true;
 }
 
@@ -273,6 +272,27 @@ void task_led_on_cfg_change(void* ctx, esp_event_base_t base, int32_t id, void* 
     task_led_boot_start(task);
 }
 
+void task_led_on_led_command(void* ctx, esp_event_base_t base, int32_t id, void* event_data)
+{
+    task_led_t *task = (task_led_t*) ctx;
+    sft_event_led_command_t *ev = (sft_event_led_command_t*) event_data;
+
+    for (int i=0; i < ev->num; i++) {
+        sft_led_command_t *e = &ev->commands[i];
+        led_command_t cmd = {
+            .num = e->num,
+            .num_end = e->num_end,
+            .color = e->color,
+            .duration = e->duration,
+            .offset = e->offset,
+            .offset_end = e->offset_end,
+            .type = e->type,
+            .update_interval = e->update_interval,
+        };
+        task_led_command_append(task, &cmd, 1);
+    }
+}
+
 void task_led_init(const ctx_t *ctx)
 {
     static task_led_t led = {0};
@@ -291,6 +311,7 @@ void task_led_init(const ctx_t *ctx)
     esp_event_handler_register(SFT_EVENT, SFT_EVENT_RSSI_UPDATE, task_led_on_rssi_update, &led);
     esp_event_handler_register(SFT_EVENT, SFT_EVENT_START_RACE, task_led_on_start_race, &led);
     esp_event_handler_register(SFT_EVENT, SFT_EVENT_CFG_CHANGED, task_led_on_cfg_change, &led);
+    esp_event_handler_register(SFT_EVENT, SFT_EVENT_LED_COMMAND, task_led_on_led_command, &led);
 
     task_led_boot_start(&led);
 }
