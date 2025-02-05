@@ -21,6 +21,7 @@
 #include "osd.h"
 #include "task_rssi.h"
 #include "task_led.h"
+#include "driver/gpio.h"
 
 
 static const char * TAG = "main";
@@ -56,11 +57,23 @@ void print_mem_usage()
 }
 
 
+void factory_reset() {
+
+    ctx.cfg.eeprom.magic[0]++;
+    cfg_save(&ctx.cfg);
+    sft_emit_led_blink(&ctx, COLOR_RED);
+    vTaskDelay(pdMS_TO_TICKS(3000));
+    esp_restart();
+}
+
 
 void app_main() {
 
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
+
+    gpio_set_direction(GPIO_NUM_0, GPIO_MODE_INPUT);
+    gpio_set_level(GPIO_NUM_0, 1);
 
     ctx.sem = xSemaphoreCreateMutexStatic( &xMutexBuffer );
     esp_chip_info_t chip_info;
@@ -98,10 +111,19 @@ void app_main() {
     task_rssi_init(&ctx);
 
     int i = 0;
+    int reset_cnt = 0;
     while (ctx.gui) {
         vTaskDelay(pdMS_TO_TICKS(1000));
         if ((i++  % 30) == 0)
             print_mem_usage();
+
+        if (gpio_get_level(GPIO_NUM_0) == 0) {
+            reset_cnt++;
+            if(reset_cnt > 10) {
+                factory_reset();
+            }
+        }
+
     }
 
     ESP_ERROR_CHECK(gui_stop(&ctx));
