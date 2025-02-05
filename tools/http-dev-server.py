@@ -30,6 +30,8 @@ import math
 import os
 from uuid import uuid4
 import sys
+import re
+import random
 
 MAX_LAPS = 16
 NUMBER_OF_PLAYERS = 3
@@ -55,6 +57,18 @@ class Player:
             while len(self.laps) > MAX_LAPS:
                 self.laps.pop(0)
             self.lap_time = time.time()
+            return True
+        return False
+
+    def addLap(self, duration, rssi):
+        self.lap_count += 1
+        print ("AddLap: {} {}".format(duration, rssi))
+        self.laps.append(
+                {'id': self.lap_count, 'duration': duration, 'abs_time': round(time.time() *1000), 'rssi': rssi}
+            )
+        while len(self.laps) > MAX_LAPS:
+            self.laps.pop(0)
+
 
     def clearLaps(self):
         self.laps = [];
@@ -62,7 +76,6 @@ class Player:
         self.lap_count = 0;
 
     def json(self):
-        self.nextLap()
         return {
             'name': self.name,
             'ipaddr': self.ipaddr,
@@ -83,14 +96,14 @@ config = {
     "rssi[0].calib_min_rssi_peak": 600,
     "rssi[0].led_color" : 14876421,
 
-    "rssi[1].name" : "",
-    "rssi[1].freq": 0,
-    "rssi[1].peak": 900,
-    "rssi[1].filter": 60,
-    "rssi[1].offset_enter": 80,
-    "rssi[1].offset_leave": 70,
+    "rssi[1].name" : "FOO",
+    "rssi[1].freq": 5923,
+    "rssi[1].peak": 999,
+    "rssi[1].filter": 66,
+    "rssi[1].offset_enter": 88,
+    "rssi[1].offset_leave": 77,
     "rssi[1].calib_max_lap_count": 3,
-    "rssi[1].calib_min_rssi_peak": 600,
+    "rssi[1].calib_min_rssi_peak": 666,
     "rssi[1].led_color" : 255,
 
     "rssi[2].name" : "",
@@ -161,7 +174,8 @@ config = {
     "ssid": "clemixfpv",
     "passphrase": "",
 
-    "game_mode": 0,
+    #"game_mode": 0,
+     "game_mode": 1,
 
     "led_num": 25,
     }
@@ -197,20 +211,15 @@ class WSHandler(WebsocketHandler):
 
 
     def on_handshake(self, request: WebsocketRequest):
-        """
-        "
-        " You can get path/headers/path_values/cookies/query_string/query_parameters from request.
-        "
-        " You should return a tuple means (http_status_code, headers)
-        "
-        " If status code in (0, None, 101), the websocket will be connected, or will return the status you return.
-        "
-        " All headers will be send to client
-        "
-        """
-#Upgrade: websocket
-#Connection: Upgrade
         return 0, {}
+
+    def sendPlayers(self, session):
+        json_data = {
+            'type' : "players",
+            'players' : [ x.json() for x in ctx.players ]
+        }
+        session.send(json.dumps(json_data))
+
 
     async def await_func(self, obj):
         if asyncio.iscoroutine(obj):
@@ -222,9 +231,10 @@ class WSHandler(WebsocketHandler):
             start = time.time()
             leave_time = time.time()
             enter_time = time.time()
+            max_rssi = 0
             channels = [
                 {"channel" : 5917, "offset": 0, 'data': []},
-                #                {"channel" : 5695, "offset": 100, 'data': []}
+                               {"channel" : 5695, "offset": 100, 'data': []}
                 #    int freq_plan[8] = { 5658, 5695, 5732, 5769, 5806, 5843, 5880, 5917 };
             ]
             idx = 0
@@ -232,6 +242,10 @@ class WSHandler(WebsocketHandler):
             while True:
                 await asyncio.sleep(0.2)
 
+                need_update = False
+                for x in ctx.players[1::]:
+                    if random.randint(1, 10) == 5:
+                        need_update = x.nextLap()
 
                 if session.is_closed:
                     print("Stop generate rssi values")
@@ -239,7 +253,7 @@ class WSHandler(WebsocketHandler):
 
                 idx = (idx + 1) % len(channels)
                 chan = channels[idx]
-                print("Index {} ".format(chan))
+                # print("Index {} ".format(chan))
 
 
                 duration = time.time() - start
@@ -255,12 +269,19 @@ class WSHandler(WebsocketHandler):
                 ctx.status['rssi_smoothed'] = int((f * rssi) + ((1.0-f)* ctx.status['rssi_smoothed']))
 
                 if ctx.status['rssi_smoothed'] > ctx.status['rssi_enter'] and (time.time() - leave_time) > 1 :
+                    if ctx.status['drone_in_gate'] == False:
+                        enter_time = time.time()
+                        max_rssi = 0
                     ctx.status['drone_in_gate'] = True
-                    enter_time = time.time()
+                    if max_rssi < ctx.status['rssi_smoothed']:
+                        max_rssi = ctx.status['rssi_smoothed']
+
                 if ctx.status['rssi_smoothed'] < ctx.status['rssi_leave'] and ctx.status['drone_in_gate'] and (time.time() - enter_time) > 1 :
                     leave_time = time.time()
                     ctx.status['drone_in_gate'] = False
-
+                    # print("leave:{} enter:{}".format(leave_time, enter_time))
+                    ctx.players[0].addLap((int)((leave_time - enter_time) * 1000), max_rssi)
+                    need_update = True
 
                 chan['data'].append({
                         't': int(time.time() * 1000),
@@ -276,6 +297,10 @@ class WSHandler(WebsocketHandler):
                     }
                     session.send_text(json.dumps(json_data))
                     chan['data'] = []
+
+                if need_update:
+                    self.sendPlayers(session)
+
         except Exception as e:
             print (e)
             traceback.print_exc()
@@ -331,7 +356,7 @@ class WSHandler(WebsocketHandler):
 def index():
     return {"hello": "world"}
 
-@route("/api/v1/settings", method=["GET", "POST"])
+@route("/api/v1/settings", method="GET")
 def handle_api_v1_settings():
     json_data = {
                 'config' : ctx.config,
@@ -339,6 +364,21 @@ def handle_api_v1_settings():
             }
     json_data['status']['players'] = [ x.json() for x in ctx.players ]
     return json_data
+
+@route("/api/v1/settings", method="POST")
+def handle_api_v1_settings(json=JSONBody()):
+    for key in json:
+        print("KEY:{}".format(key))
+        if key in ctx.config:
+            print("{} = {} of {}".format(key, json[key], type(json[key])))
+            ctx.config[key] = int(json[key]) if  json[key].isnumeric() else json[key];
+        else:
+            return {"status": "error", "msg": "Invalid key/value pair"}
+
+
+    #    ctx.config = json
+    return {"status": "ok", 'config': ctx.config}
+
 
 @request_map("/api/v1/player/lap", method=["POST"])
 def handle_api_v1_player_connect(json=JSONBody()):
@@ -373,10 +413,6 @@ def handle_api_v1_time(json=JSONBody()):
     return json
 
 
-
-
-
-
 @request_map("/{file}", method="GET")
 def default_static(file = PathValue()):
 
@@ -394,6 +430,10 @@ def default_static(file = PathValue()):
     res = path / file
 
     return StaticFile(res, "{}; charset=utf-8".format(content_type.get(res.suffix,"text/html")))
+
+@request_map("/", method="GET")
+def home():
+    return default_static("index.html")
 
 
 if __name__ == "__main__":
