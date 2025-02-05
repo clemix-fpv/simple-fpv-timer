@@ -38,6 +38,7 @@ typedef struct {
     rx5808_t rx5808;
 
     rssi_t rssi_array[MAX_FREQ];
+    uint16_t rssi_cnt;
     rssi_t *rssi;           /* pointer to current rssi_array[idx] */
 
     sft_event_rssi_update_t rssi_update_ev[MAX_FREQ];

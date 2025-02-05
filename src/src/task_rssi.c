@@ -1,3 +1,4 @@
+#include <stdint.h>
 #include <task_rssi.h>
 #include "esp_err.h"
 #include "simple_fpv_timer.h"
@@ -21,34 +22,25 @@ static esp_err_t task_rssi_next_channel(task_rssi_t *tsk);
 
 static void task_rssi_set_config(task_rssi_t *tsk, const config_data_t *cfg)
 {
-    bool changed_channel = false;
+    ESP_LOGI(TAG, "%s - ENTER", __func__);
 
-    for (int i=0; i< CFG_MAX_FREQ; i++) {
-        if (tsk->rssi_array[i].freq != cfg->rssi[i].freq) {
-            changed_channel = true;
-            break;
-        }
-    }
-    if (!changed_channel) {
-
-    }
-
-    printf("CONFIG changed freq:");
     for (int i=0; i< CFG_MAX_FREQ; i++)
         printf("%d ", cfg->rssi[i].freq);
 
 
+    tsk->rssi_cnt = 0;
     for (int i=0; i< CFG_MAX_FREQ; i++) {
         rssi_t *rssi = &tsk->rssi_array[i];
         const config_rssi_t *cfg_rssi = &cfg->rssi[i];
         sft_event_rssi_update_t *ev = &tsk->rssi_update_ev[i];
 
         if (cfg_rssi->freq == 0) {
-            memset(rssi, 0, sizeof(rssi_t));
-            memset(ev, 0, sizeof(sft_event_rssi_update_t));
-            continue;
+            memset(rssi, 0, sizeof(rssi_t) * (MAX_FREQ - i));
+            memset(ev, 0, sizeof(sft_event_rssi_update_t) * (MAX_FREQ - i));
+            break;
         }
 
+        tsk->rssi_cnt++;
         rssi->freq = cfg_rssi->freq;
         rssi->filter = cfg_rssi->filter / 100.0f;
         if (rssi->filter < 0.01)
@@ -87,6 +79,7 @@ static void task_rssi_on_update_cfg(void* priv, esp_event_base_t base, int32_t i
     task_rssi_t *tsk = (task_rssi_t*) priv;
     config_data_t *cfg = &((sft_event_cfg_changed_t*) event_data)->cfg;
 
+    ESP_LOGI(TAG, "On config update!");
     task_rssi_set_config(tsk, cfg);
 }
 
@@ -202,10 +195,13 @@ static void task_rssi_collect_rssi(task_rssi_t *tsk, millis_t time)
             (ev->cnt > 0 &&
             ev->data[idx].abs_time_ms - ev->data[0].abs_time_ms >= TIME_SLOT)){
 
-            ESP_ERROR_CHECK(
-                esp_event_post(SFT_EVENT, SFT_EVENT_RSSI_UPDATE,
-                               ev, sizeof(*ev), pdMS_TO_TICKS(100)));
-            ev->cnt = 0;
+            if (esp_event_post(SFT_EVENT, SFT_EVENT_RSSI_UPDATE,
+                               ev, sizeof(*ev), pdMS_TO_TICKS(100)) == ESP_OK) {
+                ev->cnt = 0;
+            } else {
+                if (ev->cnt +1 >= SFT_RSSI_UPDATE_MAX)
+                    ev->cnt = 0;
+            }
         }
         idx = ev->cnt++;
         ev->data[idx].abs_time_ms = time;
@@ -311,6 +307,7 @@ void task_rssi( void * priv )
                                                         task_rssi_on_update_cfg,
                                                         tsk, NULL));
     timer_start(&s1, 1000, NULL, NULL);
+    uint16_t change_channel_counter = 0;
     for(;;) {
         timer_start(&loop, 5, NULL, NULL);
 
@@ -320,7 +317,10 @@ void task_rssi( void * priv )
         task_rssi_process_rssi(tsk, &gate_blocked, voltage);
         task_rssi_collect_rssi(tsk, ms);
 
-        ESP_ERROR_CHECK_WITHOUT_ABORT(task_rssi_next_channel(tsk));
+        if (tsk->rssi_cnt > 1 && change_channel_counter++ > 10) {
+            ESP_ERROR_CHECK_WITHOUT_ABORT(task_rssi_next_channel(tsk));
+            change_channel_counter = 0;
+        }
 
         ms = get_millis();
         if (loop.end > ms)
