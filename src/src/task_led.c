@@ -45,7 +45,7 @@ struct task_led_s {
 };
 
 
-static bool task_led_command_append(task_led_t *task, led_command_t * cmds, uint16_t num);
+static bool task_led_command_append(task_led_t *task, const led_command_t * cmds, uint16_t num);
 
 static void task_led_show_rssi(task_led_t *tskled, int rssi)
 {
@@ -97,36 +97,38 @@ void task_led_num_leds_cfg(task_led_t *task)
 
 void task_led_boot_start(task_led_t* task)
 {
-    led_command_t cmds[] =  {
-        {.color = COLOR_RED, .num = 100, .duration = 1500, .before_fn = task_led_increase_num_leds},
-        {.color = COLOR_GREEN, .num = 0, .duration = 1500,
+    static const millis_t DURATION=700;
+
+    static const led_command_t cmds[] =  {
+        {.color = COLOR_RED, .num = 100, .duration = DURATION, .before_fn = task_led_increase_num_leds},
+        {.color = COLOR_GREEN, .num = 0, .duration = DURATION,
             .num_end = 100, .type = SFT_LED_CMD_TYPE_PERCENT_TRANSITION, .update_interval = 100,
         },
-        {.color = COLOR_GREEN, .num = 100, .duration = 1500},
-        {.color = COLOR_BLUE, .num = 0, .duration = 1500,
+        {.color = COLOR_GREEN, .num = 100, .duration = DURATION},
+        {.color = COLOR_BLUE, .num = 0, .duration = DURATION,
             .num_end = 100, .type = SFT_LED_CMD_TYPE_PERCENT_TRANSITION, .update_interval = 100,
         },
-        {.color = COLOR_BLUE, .num = 100, .duration = 1500},
-        {.color = COLOR(252, 186, 3), .num = 0, .duration = 1500,
+        {.color = COLOR_BLUE, .num = 100, .duration = DURATION},
+        {.color = COLOR(252, 186, 3), .num = 0, .duration = DURATION,
             .num_end = 100, .type = SFT_LED_CMD_TYPE_PERCENT_TRANSITION, .update_interval = 100,
         },
-        {.color = COLOR(252, 186, 3), .num = 100, .duration = 1500},
-        {.color = COLOR(207, 3,   252), .num = 0, .duration = 1500,
+        {.color = COLOR(252, 186, 3), .num = 100, .duration = DURATION},
+        {.color = COLOR(207, 3,   252), .num = 0, .duration = DURATION,
             .num_end = 100, .type = SFT_LED_CMD_TYPE_PERCENT_TRANSITION, .update_interval = 100,
         },
-        {.color = COLOR(207, 3,   252), .num = 100, .duration = 1500},
-        {.color = COLOR(3,   252, 252), .num = 0, .duration = 1500,
+        {.color = COLOR(207, 3,   252), .num = 100, .duration = DURATION},
+        {.color = COLOR(3,   252, 252), .num = 0, .duration = DURATION,
             .num_end = 100, .type = SFT_LED_CMD_TYPE_PERCENT_TRANSITION, .update_interval = 100,
         },
-        {.color = COLOR(3,   252, 252), .num = 100, .duration = 1500},
-        {.color = COLOR(252, 3,   119), .num = 0, .duration = 1500,
+        {.color = COLOR(3,   252, 252), .num = 100, .duration = DURATION},
+        {.color = COLOR(252, 3,   119), .num = 0, .duration = DURATION,
             .num_end = 100, .type = SFT_LED_CMD_TYPE_PERCENT_TRANSITION, .update_interval = 100,
         },
-        {.color = COLOR(252, 3,   119), .num = 100, .duration = 1500},
-        {.color = COLOR(252, 102, 3), .num = 0, .duration = 1500,
+        {.color = COLOR(252, 3,   119), .num = 100, .duration = DURATION},
+        {.color = COLOR(252, 102, 3), .num = 0, .duration = DURATION,
             .num_end = 100, .type = SFT_LED_CMD_TYPE_PERCENT_TRANSITION, .update_interval = 100,
         },
-        {.color = COLOR(252, 102, 3), .num = 100, .duration = 1500, .after_fn = task_led_num_leds_cfg},
+        {.color = COLOR(252, 102, 3), .num = 100, .duration = DURATION, .after_fn = task_led_num_leds_cfg},
     };
 
     task_led_command_append(task, cmds, sizeof(cmds) / sizeof(cmds[0]));
@@ -213,8 +215,10 @@ static void task_led_on_cmd_timer(void* arg)
     task_led_command_process(task);
 }
 
-static bool task_led_command_append(task_led_t *task, led_command_t * cmds, uint16_t num)
+static bool task_led_command_append(task_led_t *task, const led_command_t * cmds, uint16_t num)
 {
+    ESP_LOGD(TAG, "task:%p cmds:%p num:%"PRIu16" stack_ptr:%"PRIu16" stack_sz:%"PRIu16,
+             task, cmds, num, task->stack_ptr, task->stack_sz);
     if (task->stack_ptr > 0) {
         if (task->stack_ptr > task->stack_sz) {
             task->stack_sz = 0;
@@ -231,7 +235,7 @@ static bool task_led_command_append(task_led_t *task, led_command_t * cmds, uint
         return false;
     }
 
-    memcpy(&task->stack[task->stack_sz], cmds, num * sizeof(cmds[0]));
+    memcpy(&task->stack[task->stack_sz], cmds, num * sizeof(task->stack[0]));
     task->stack_sz += num;
 
     if (!esp_timer_is_active(task->timer))
@@ -245,11 +249,11 @@ void task_led_on_start_race(void* ctx, esp_event_base_t base, int32_t id, void* 
     sft_event_start_race_t *ev = (sft_event_start_race_t*) event_data;
 
 
-    led_command_t cmds[] =  {
+    static led_command_t cmds[] =  {
         {.color = COLOR_BLUE, .num = 100, .duration = 0, .before_fn = task_led_increase_num_leds},
         {.color = 0, .type = SFT_LED_CMD_TYPE_PERCENT_TRANSITION,
             .offset = 100, .offset_end = 0,
-            .num = 0, .duration = ev->offset,
+            .num = 0, .duration = 30,
             .num_end = 100
         },
         {.color = COLOR_RED,   .num = 33,  .duration = 1000 },
@@ -259,6 +263,8 @@ void task_led_on_start_race(void* ctx, esp_event_base_t base, int32_t id, void* 
         },
     };
 
+    cmds[1].duration = ev->offset;
+
     task_led_command_append(task, cmds, sizeof(cmds) / sizeof(cmds[0]));
 }
 
@@ -266,29 +272,46 @@ void task_led_on_cfg_change(void* ctx, esp_event_base_t base, int32_t id, void* 
 {
     task_led_t *task = (task_led_t*) ctx;
     sft_event_cfg_changed_t *ev = (sft_event_cfg_changed_t*) event_data;
+    uint16_t size;
+
+    ESP_LOGI(TAG, "On config update!");
 
     task->cfg = ev->cfg;
 
-    task_led_boot_start(task);
+    static led_command_t cmds[] =  {
+        {.color = COLOR_GREEN, .num = 100, .duration = 500 },
+        {.color = 0,           .num = 100, .duration = 500 },
+        {.color = COLOR_GREEN, .num = 100, .duration = 500 },
+        {.color = 0,           .num = 100, .duration = 500 },
+        {.color = COLOR_GREEN, .num = 100, .duration = 1 },
+    };
+    size = sizeof(cmds) / sizeof(cmds[0]);
+
+    /* for CTF we do not want to have LED's on by default */
+    if (task->cfg.game_mode == CFG_GAME_MODE_CTF)
+        size --;
+
+    task_led_command_append(task, cmds, size);
 }
 
 void task_led_on_led_command(void* ctx, esp_event_base_t base, int32_t id, void* event_data)
 {
     task_led_t *task = (task_led_t*) ctx;
     sft_event_led_command_t *ev = (sft_event_led_command_t*) event_data;
+    led_command_t cmd;
 
     for (int i=0; i < ev->num; i++) {
         sft_led_command_t *e = &ev->commands[i];
-        led_command_t cmd = {
-            .num = e->num,
-            .num_end = e->num_end,
-            .color = e->color,
-            .duration = e->duration,
-            .offset = e->offset,
-            .offset_end = e->offset_end,
-            .type = e->type,
-            .update_interval = e->update_interval,
-        };
+
+        memset(&cmd, 0, sizeof(cmd));
+        cmd.num = e->num;
+        cmd.num_end = e->num_end;
+        cmd.color = e->color;
+        cmd.duration = e->duration;
+        cmd.offset = e->offset;
+        cmd.offset_end = e->offset_end;
+        cmd.type = e->type;
+        cmd.update_interval = e->update_interval;
         task_led_command_append(task, &cmd, 1);
     }
 }
