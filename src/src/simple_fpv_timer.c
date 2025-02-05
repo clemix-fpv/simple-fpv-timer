@@ -107,8 +107,8 @@ bool sft_encode_lapcounter(lap_counter_t *lc, json_writer_t *jw)
 static void sft_emit_led_static(ctx_t *ctx, color_t color)
 {
 
-    sft_led_command_t *cmd;
-    size_t sz = sizeof(sft_event_led_command_t) + sizeof(sft_led_command_t);
+    sft_led_command_t *cmd = NULL;
+    uint16_t sz = sizeof(sft_event_led_command_t) + sizeof(sft_led_command_t);
     sft_event_led_command_t *ev = calloc(1, sz);
 
     ev->num = 1;
@@ -120,10 +120,11 @@ static void sft_emit_led_static(ctx_t *ctx, color_t color)
     cmd->update_interval = 100;
     cmd->duration = 2000;
 
-    esp_event_post(SFT_EVENT, SFT_EVENT_LED_COMMAND, &ev, sz, pdMS_TO_TICKS(500));
+    esp_event_post(SFT_EVENT, SFT_EVENT_LED_COMMAND, ev, sz, pdMS_TO_TICKS(500));
+    free(ev);
 }
 
-static void sft_emit_led_blink(ctx_t *ctx, color_t color)
+void sft_emit_led_blink(ctx_t *ctx, color_t color)
 {
     sft_led_command_t *cmd;
     size_t sz = sizeof(sft_event_led_command_t) + sizeof(sft_led_command_t) * 5;
@@ -160,7 +161,8 @@ static void sft_emit_led_blink(ctx_t *ctx, color_t color)
     cmd->num = 100;
     cmd->duration = 100;
 
-    esp_event_post(SFT_EVENT, SFT_EVENT_LED_COMMAND, &ev, sz, pdMS_TO_TICKS(500));
+    esp_event_post(SFT_EVENT, SFT_EVENT_LED_COMMAND, ev, sz, pdMS_TO_TICKS(500));
+    free(ev);
 }
 
 struct player_s* sft_player_get_or_create(lap_counter_t *lc, ip4_addr_t ip4, const char *name)
@@ -352,9 +354,10 @@ void sft_on_drone_enter_ctf(ctx_t *ctx, int freq, int rssi, millis_t abs_time_ms
     millis_t now = get_millis();
     config_rssi_t *my_rssi = NULL;
     ctf_team_t *my_team = NULL;
-
-
     int count_drone_in = 0;
+
+    ESP_LOGI(TAG, "%s - ENTER", __func__);
+
 
     for (idx = 0; idx < CFG_MAX_FREQ; idx++) {
         config_rssi_t *tmp = &cfg->running.rssi[idx];
@@ -481,7 +484,7 @@ void sft_change_game_mode(ctx_t *ctx, uint16_t new_mode, uint16_t old_mode)
     }
 }
 
-static void dump_pkt(uint8_t *buf, uint8_t len)
+void dump_buffer(uint8_t *buf, uint8_t len)
 {
     uint8_t i;
 
@@ -523,25 +526,31 @@ bool sft_update_settings(ctx_t *ctx)
     cfg_set_running(cfg, rssi[idx].offset_leave);                         \
     cfg_set_running(cfg, rssi[idx].calib_max_lap_count);                  \
     cfg_set_running(cfg, rssi[idx].calib_min_rssi_peak);                  \
+    if (cfg_differ(cfg, rssi[idx].led_color)) {                         \
+        name_changed = true;                                            \
+        cfg_set_running(cfg, rssi[idx].led_color);                            \
+    }                                                                   \
     cfg_set_running(cfg, rssi[idx].freq);
 
 
+    ESP_LOGI(TAG, "%s -- ENTER", __func__);
     if (!cfg_changed(cfg)) {
         ESP_LOGI(TAG, "%s -- nothing to do", __func__);
         return true;
     }
 
     bool name_changed = false;
+    ESP_LOGI(TAG, "%s:%d ", __func__, __LINE__);
     for (int i = 0; i < MAX_PLAYER; i++) {
+        ESP_LOGI(TAG, "%s:%d ", __func__, __LINE__);
         update_rssi(cfg, i, name_changed);
     }
 
+    ESP_LOGI(TAG, "%s:%d ", __func__, __LINE__);
     cfg_set_running_str(cfg, magic);
 
 
-    memset(lc->in_calib_mode, 0, CFG_MAX_FREQ * sizeof(bool));
-    memset(lc->in_calib_lap_count, 0, CFG_MAX_FREQ * sizeof(int));
-
+    ESP_LOGI(TAG, "%s:%d ", __func__, __LINE__);
     if (cfg_differ(cfg, osd_format)) {
         osd_set_format(&ctx->osd, cfg->eeprom.osd_format);
         cfg_set_running_str(cfg, osd_format);
@@ -560,6 +569,7 @@ bool sft_update_settings(ctx_t *ctx)
     if (cfg_differ(cfg, elrs_uid) || cfg_differ(cfg, wifi_mode) ||
         cfg_differ(cfg, passphrase) || cfg_differ(cfg, ssid)) {
 
+        ESP_LOGI(TAG, "Setup wifi");
         wifi_setup(&ctx->wifi, &ctx->cfg.eeprom);
 
         cfg_set_running_str(cfg, elrs_uid);
@@ -569,20 +579,24 @@ bool sft_update_settings(ctx_t *ctx)
     }
 
     if (cfg_differ(cfg, game_mode) || name_changed) {
+        ESP_LOGI(TAG, "Change game mode");
         sft_change_game_mode(ctx, cfg->eeprom.game_mode, cfg->running.game_mode);
         cfg_set_running(cfg, game_mode);
     }
 
     sft_event_cfg_changed_t ev = { .cfg = cfg->running };
-    ESP_ERROR_CHECK(
-        esp_event_post(SFT_EVENT, SFT_EVENT_CFG_CHANGED,
-                       &ev, sizeof(ev), pdMS_TO_TICKS(500)));
+    ESP_LOGI(TAG, "Emit CFG_CHANGED event");
+    if (esp_event_post(SFT_EVENT, SFT_EVENT_CFG_CHANGED,
+                       &ev, sizeof(ev), pdMS_TO_TICKS(1000)) != ESP_OK) {
+        ESP_LOGE(TAG, "%s FAILED to set CFG_CHANGED event!", __func__);
+    }
 
     if (cfg_changed(cfg)) {
         ESP_LOGI(TAG, "%s -- ERROR not all settings applied!", __func__);
         cfg_dump(cfg);
         return false;
     }
+    ESP_LOGI(TAG, "%s DONE", __func__);
     return true;
 }
 

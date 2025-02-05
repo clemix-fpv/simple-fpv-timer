@@ -157,3 +157,9 @@ player_t* sft_player_get_or_create(lap_counter_t *lc, ip4_addr_t ip4, const char
 lap_t* sft_player_add_lap(player_t *player, int id, int rssi, millis_t duration, millis_t abs_time);
 bool sft_update_settings(ctx_t *ctx);
 void sft_start_calibration(ctx_t *ctx);
+void sft_emit_led_blink(ctx_t *ctx, color_t color);
+
+void dump_buffer(uint8_t *buf, uint8_t len);
+
+
+
