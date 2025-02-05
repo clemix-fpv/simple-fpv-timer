@@ -5,13 +5,14 @@ Import('env')
 import os
 import gzip
 import shutil
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import glob
 import subprocess
 
 def prepare_www_files(source, target, env):
 
-    filetypes_to_gzip = ['js', 'html', 'css']
+    filetypes_to_gzip = ['js', 'html', 'css', 'map']
+    ignore_suffix = []
 
     proj_dir = Path(env.get("PROJECT_DIR"))
     data_src_dir = os.path.join(proj_dir, 'data_src')
@@ -35,10 +36,13 @@ def prepare_www_files(source, target, env):
     all_files = glob.glob(os.path.join(data_src_dir, '*.*'))
     files_to_copy = list(set(all_files) - set(files_to_gzip))
 
-    print('  files to copy: ' + str(files_to_copy))
 
+    print('  files to copy: ' + str(files_to_copy))
     dst_files = []
     for file in files_to_copy:
+        if PurePosixPath(file).suffix in ignore_suffix:
+            continue
+
         print('  COPY: ' + file)
         dst = os.path.join(tmp_dir, os.path.basename(file))
         shutil.copy(file, dst)
