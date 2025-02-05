@@ -81,6 +81,16 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
                  MAC2STR(event->mac), event->aid, event->reason);
 
     } else if (event_id == WIFI_EVENT_AP_STACONNECTED) {
+        ESP_LOGI(TAG, "WIFI_EVENT_AP_STACONNECTED");
+        wifi->sta_connected = true;
+    }
+}
+
+static void wifi_sta_got_ip(void *arg, esp_event_base_t base, int32_t event_id, void *data)
+{
+    wifi_t *wifi = (wifi_t*) arg;
+
+    if (wifi->state == WIFI_STA) {
         wifi->sta_connected = true;
     }
 }
@@ -100,6 +110,10 @@ void wifi_setup(wifi_t *wifi, const config_data_t *cfg)
                                                             &wifi_event_handler,
                                                             wifi,
                                                             NULL));
+
+        ESP_ERROR_CHECK(
+            esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP,
+                                       wifi_sta_got_ip, wifi));
         esp_wifi_set_storage(WIFI_STORAGE_RAM);
 
         esp_netif_create_default_wifi_ap();
@@ -178,6 +192,7 @@ void wifi_setup(wifi_t *wifi, const config_data_t *cfg)
         start = get_millis();
         while ((get_millis() - start) < 30000 && !wifi->sta_connected ) {
             vTaskDelay(pdMS_TO_TICKS(1000));
+            ESP_LOGI(TAG, "wait for Wifi connection");
         }
     }
 
