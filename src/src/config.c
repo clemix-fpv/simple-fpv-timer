@@ -107,16 +107,22 @@ esp_err_t cfg_verify(struct config * cfg)
 {
     config_data_t *eeprom = &cfg->eeprom;
 
-    if (eeprom->rssi[0].offset_enter > 100) {
-        if (eeprom->rssi[0].peak > 0)
-            eeprom->rssi[0].offset_enter = eeprom->rssi[0].offset_enter * 100 / eeprom->rssi[0].peak;
-    }
+    for (int i = 0; i < CFG_MAX_FREQ; i++) {
+        config_rssi_t *rssi = &eeprom->rssi[i];
 
-    if (eeprom->rssi[0].offset_leave > 100) {
-        if (eeprom->rssi[0].peak > 0)
-            eeprom->rssi[0].offset_leave = eeprom->rssi[0].offset_leave * 100 / eeprom->rssi[0].peak;
-    }
+        if (rssi->freq == 0)
+            continue;
 
+        if (rssi->offset_enter > 100) {
+            if (rssi->peak > 0)
+                rssi->offset_enter = rssi->offset_enter * 100 / rssi->peak;
+        }
+
+        if (rssi->offset_leave > 100) {
+            if (rssi->peak > 0)
+                rssi->offset_leave = rssi->offset_leave * 100 / rssi->peak;
+        }
+    }
     return ESP_OK;
 }
 
@@ -193,7 +199,7 @@ esp_err_t cfg_save(struct config *cfg)
     esp_err_t err;
     nvs_handle_t fd;
 
-    printf("Save eeprom configuration\n");
+    ESP_LOGI(TAG, "Save eeprom configuration\n");
     if ((err = nvs_open(CFG_NVS_NAMESPACE, NVS_READWRITE, &fd)) != ESP_OK) {
         printf("FAILED TO OPEN NVS\n");
         return err;
@@ -207,15 +213,20 @@ esp_err_t cfg_save(struct config *cfg)
     err = nvs_commit(fd);
 
     nvs_close(fd);
+
+    ESP_LOGI(TAG, "NVS Config saved: %s", esp_err_to_name(err));
     return err;
 }
 
 esp_err_t cfg_set_param(struct config* cfg, const char *name, const char *value)
 {
     const struct config_meta* cm = config_meta;
+    ESP_LOGI(TAG, "%s %s: '%s'", __func__, name, value);
     for(; cm->name != NULL; cm++) {
         if (strcmp(cm->name, name) == 0) {
-            if (cm->type == UINT16) {
+            if (cm->type == UINT32) {
+                *(uint32_t*)((unsigned char*)&cfg->eeprom + cm->offset) = (uint32_t) atoi(value);
+            } else if (cm->type == UINT16) {
                 *(uint16_t*)((unsigned char*)&cfg->eeprom + cm->offset) = (uint16_t) atoi(value);
             } else if (cm->type == MACADDR) {
                 macaddr_from_str((unsigned char*)&cfg->eeprom + cm->offset, value);

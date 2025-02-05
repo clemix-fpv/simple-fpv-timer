@@ -8,7 +8,7 @@
 #include "json.h"
 
 #define CFG_DEFAULT_OSD_FORMAT  "%2L: %5.2ts(%6.2ds)"
-#define CFG_VERSION             "v005"
+#define CFG_VERSION             "v006"
 #define CFG_NVS_NAMESPACE       "config"
 
 #define CFG_WIFI_MODE_AP        0
