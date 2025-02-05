@@ -334,8 +334,6 @@ static esp_err_t api_v1_post_time_sync(httpd_req_t *req, ctx_t *ctx,
         j_find(jr, "server", &server);
         j_find(jr, "client", &client);
 
-        printf("T: start: %.*s\n", len, json_buffer);
-
         jw_init(jw, wbuf, wbuf_len);
         jw_object(jw) {
             jw_kv(jw, "server"){
@@ -509,10 +507,20 @@ static esp_err_t api_v1_post_handler(httpd_req_t *req)
 void sft_event_rssi_update(void* ctx, esp_event_base_t base, int32_t id, void* event_data)
 {
     sft_event_rssi_update_t *ev = (sft_event_rssi_update_t*) event_data;
-    static json_writer_t jwmem, *jw;
 
-    jw = &jwmem;
-    jw_init(jw, json_buffer, sizeof(json_buffer));
+    /* do not use static send buffer (e.g. json_buffer) here, as it happens that events get triggered
+     * on other syscalls like send(), thus the static buffer might be already dirty!
+     */
+    char *buf;
+    json_writer_t *jw;
+
+    if (!(buf = malloc(512))) {
+        ESP_LOGE(TAG, "RSSI update - out of memory!");
+        return;
+    }
+
+    jw = (json_writer_t*) buf;
+    jw_init(jw, buf + sizeof(json_writer_t), 512 - sizeof(json_writer_t));
 
     jw_object(jw){
         jw_kv_str(jw, "type", "rssi");
@@ -530,7 +538,8 @@ void sft_event_rssi_update(void* ctx, esp_event_base_t base, int32_t id, void* e
             }
         }
     }
-    gui_send_all(ctx, json_buffer);
+    gui_send_all(ctx, jw->buf);
+    free(buf);
 }
 
 /* Function for starting the webserver */
