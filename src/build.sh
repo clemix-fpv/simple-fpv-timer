@@ -3,6 +3,7 @@ need_build=${force:-0}
 me="./build.sh"
 pio=pio
 check_folders="src data_src"
+esp_idf_monitor=1
 
 if command -v distrobox-enter; then
     pio="distrobox-enter tumbleweed -- pio "
@@ -13,10 +14,11 @@ print_help()
       echo "Usage:"
       echo "  --force -f     force build"
       echo "  --monitor      Only run monitor"
+      echo "  --[no-]idf-monitor  Use idf_monitor.py"
       echo ""
 }
 
-for dir in $check_folders; do 
+for dir in $check_folders; do
   [[ "$need_build" -eq 1 ]] && break;
   [[ ! -d "$dir" ]] && continue;
 
@@ -42,6 +44,14 @@ while [[ $# -gt 0 ]]; do
       print_help
       exit 0;
       ;;
+    --idf-monitor)
+      esp_idf_monitor=1
+      shift
+      ;;
+    --no-idf-monitor)
+      esp_idf_monitor=0
+      shift
+      ;;
     *)
       echo "Invalid argument"
       echo ""
@@ -51,6 +61,20 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+function monitor()
+{
+    if [ "$esp_idf_monitor" -eq 1 ]; then
+        echo "IDF MONITOR"
+        source ~/.platformio/penv/.espidf-5.3.0/bin/activate
+        python3 /home/clemix/.platformio/packages/framework-espidf/tools/idf_monitor.py \
+            --port /dev/ttyUSB0 \
+            --baud 115200 \
+            --toolchain-prefix /home/clemix/.platformio/packages/toolchain-xtensa-esp32/bin/xtensa-esp32-elf- \
+            .pio/build/esp32dev/firmware.elf
+    else
+        $pio device monitor
+    fi
+}
 
 if [ $need_build -eq 1 ]; then
     # universal-ctags -R --exclude='.*.swp' --exclude=.svn \
@@ -61,9 +85,9 @@ if [ $need_build -eq 1 ]; then
     $pio run -t compiledb &&
     $pio run -t upload &&
     touch $me &&
-    $pio device monitor
+    monitor
 else
-    $pio device monitor
+    monitor
 fi
 
 
