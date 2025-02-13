@@ -173,6 +173,9 @@ config = {
     "wifi_mode": 0,
     "ssid": "clemixfpv",
     "passphrase": "",
+    "node_name": "",
+    "node_mode": 0,
+    "ctrl_ipv4": "0.0.0.0",
 
     #"game_mode": 0,
      "game_mode": 1,
@@ -352,6 +355,28 @@ class WSHandler(WebsocketHandler):
         session.send(message)
 
 
+def save_config(obj):
+    with open("config.json", 'w') as f:
+        f.write(json.dumps(obj, indent=2))
+
+
+def load_config():
+    if not os.path.isfile("config.json"):
+        return
+
+    with open("config.json", 'r') as f:
+        o = json.load(f)
+        new_config = {}
+        for key in o:
+            if key in config:
+                new_config[key] = o[key]
+            else:
+                print("Invalid key {} in configuration".format(key))
+                return
+        print("Configuration Successfull loaded!")
+        ctx.config = new_config
+
+
 @route("/api/v1/laps")
 def index():
     return {"hello": "world"}
@@ -376,6 +401,7 @@ def handle_api_v1_settings(json=JSONBody()):
             return {"status": "error", "msg": "Invalid key/value pair"}
 
 
+    save_config(ctx.config);
     #    ctx.config = json
     return {"status": "ok", 'config': ctx.config}
 
@@ -445,6 +471,8 @@ if __name__ == "__main__":
     ctx.players = [Player(names.pop()) for x in range(NUMBER_OF_PLAYERS)]
     for x in ctx.players[1::]:
         x.ipaddr = "10.0.0.{}".format(randrange(100)+2)
+
+    load_config()
 
     print("Browse to http://localhost:{}".format(port))
     server.start(port=port, prefer_coroutine=True)
