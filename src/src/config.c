@@ -74,16 +74,19 @@ const struct config_meta config_meta[] =
         config_meta_MACADDR(elrs_uid),
         config_meta_UINT16(osd_x),
         config_meta_UINT16(osd_y),
-        config_meta_STRING(osd_format, 32),
+        config_meta_STRING(osd_format, CFG_MAX_OSD_FORMAT_LEN),
 
         config_meta_UINT16(wifi_mode),
-        config_meta_STRING(ssid, 32),
-        config_meta_STRING(passphrase, 32),
+        config_meta_STRING(ssid, CFG_MAX_SSID_LEN),
+        config_meta_STRING(passphrase, CFG_MAX_PASSPHRASE_LEN),
+
+        config_meta_STRING(node_name, CFG_MAX_NAME_LEN),
+        config_meta_UINT16(node_mode),
+        config_meta_UINT32(ctrl_ipv4),
 
         config_meta_UINT16(game_mode),
 
         config_meta_UINT16(led_num),
-        config_meta_UINT16(race_start_offset),
 
         {.name = NULL}
     };
@@ -150,7 +153,6 @@ static void cfg_data_init(struct config_data *eeprom)
     strcpy(eeprom->osd_format, CFG_DEFAULT_OSD_FORMAT);
 
     eeprom->game_mode = CFG_GAME_MODE_RACE;
-    eeprom->race_start_offset = 30;
     eeprom->led_num = 25;
 }
 
@@ -158,6 +160,7 @@ void cfg_generate_random_ssid(char *buf, size_t len)
 {
     snprintf(buf, len, "simple-fpv-timer-%02X", (int)(esp_random() % 0xff));
 }
+
 
 esp_err_t cfg_load(struct config *cfg)
 {
