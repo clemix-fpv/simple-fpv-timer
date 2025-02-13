@@ -4,6 +4,9 @@ import { Config } from "../../SimpleFpvTimer";
 import { $ } from "../../utils.js";
 const { h3,label, form, select,input,img,fieldset, option, button, div, h5, pre, ul, li, span, a, table, thead, tbody, th, tr,td} = van.tags
 
+
+
+
 export class CtfConfigPage extends RaceConfigPage {
 
     drawConfig(cfg: Config) : HTMLElement {

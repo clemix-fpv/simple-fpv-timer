@@ -1,19 +1,113 @@
 import van from "../../lib/van-1.5.2.js"
 import { Notifications } from "../../Notifications.js";
-import { Config, ConfigGameMode, ConfigWIFIMode, Lap, Page, Player } from "../../SimpleFpvTimer.js";
+import { Config, ConfigGameMode, ConfigNodeMode, ConfigWIFIMode, Lap, Page, Player } from "../../SimpleFpvTimer.js";
 import { $, enumToMap, format_ms, hide, Images, show, suffix } from "../../utils.js";
 
 const { h3,label, form, select,input,img,fieldset, option, button, div, h5, pre, ul, li, span, a, table, thead, tbody, th, tr,td} = van.tags
 
 
+class VisibleElements {
+    protected hidden: Array<string>;
+    protected hidden_groups: Array<string>;
+    protected rssi_min: number;
+    protected rssi_max: number;
+    protected rssi_label: string;
 
-export class ConfigElement {
+    public fieldIsVisible(fieldname: string): boolean {
+        return !this.inArray(this.hidden, fieldname);
+    }
+
+    public groupIsVisible(group: string): boolean {
+        return !this.inArray(this.hidden_groups, group);
+    }
+
+    private inArray(arr: Array<string>, needle: string) {
+        return !!arr.find((v) => {
+            if (v.charAt(0) == '^') {
+                return !! needle.match(v);
+            } else {
+                return v === needle;
+            }
+        });
+    }
+
+    get getRssiMin() {
+        return this.rssi_min;
+    }
+
+    get getRssiMax() {
+        return this.rssi_max;
+    }
+
+    get getRssiLabel() {
+        return this.rssi_label;
+    }
+
+    constructor(
+        hidden: Array<string>,
+        hidden_groups: Array<string>,
+        rssi_min?:number,
+        rssi_max?: number) {
+
+        this.hidden = hidden;
+        this.hidden_groups = hidden_groups;
+        this.rssi_min = rssi_min || 1;
+        this.rssi_max = rssi_max || 8;
+    }
+}
+
+class ElementsRace extends VisibleElements {
+
+    constructor(cfg: Config) {
+        super(new Array<string>(), new Array<string>(), 1, 1);
+
+        this.rssi_label = "Player Settings";
+        this.hidden.push('node_name');
+        this.hidden.push('rssi[0].led_color');
+        if (cfg.node_mode == ConfigNodeMode.CONTROLLER)
+            this.hidden.push('ctrl_ipv4');
+    }
+}
+
+class ElementsCTF extends VisibleElements {
+
+    constructor(cfg: Config) {
+        super(new Array<string>(), new Array<string>());
+
+        this.rssi_label = "CTF Teams";
+        this.hidden_groups.push(ElrsConfigGroup.name)
+
+        if (cfg.node_mode == ConfigNodeMode.CONTROLLER)
+            this.hidden.push('ctrl_ipv4');
+        else
+            this.hidden_groups.push(TabedRssiConfigGroup.name)
+    }
+}
+
+class ElementsSpectrum extends VisibleElements {
+
+    constructor(_: Config) {
+        super(new Array<string>(), new Array<string>());
+        this.hidden_groups.push(ElrsConfigGroup.name)
+
+        this.hidden.push('ctrl_ipv4');
+        this.hidden.push('node_name');
+        this.hidden.push('node_mode');
+        this.hidden.push('^rssi\\[\\d+\\]\\.(?!freq)');
+    }
+}
+
+export class ConfigElement extends EventTarget {
     fieldname: string;
     value: string;
     label: string;
     help: string;
+    cfg: Config;
+    visible: boolean;
 
-    constructor(cfg: Config, fieldname: string, label: string, help?: string) {
+    constructor(cfg: Config, visible: VisibleElements, fieldname: string, label: string, help?: string) {
+        super();
+        this.visible = visible.fieldIsVisible(fieldname);
         this.fieldname = fieldname;
         this.value = cfg.getValue(fieldname);
         this.label = label;
@@ -26,7 +120,10 @@ export class ConfigElement {
     }
 
     public draw() {
+        return this.visible ? this.buildHtmlElement() : div();
+    }
 
+    public buildHtmlElement() {
         return div({class: "form-group"},
             fieldset(
                 label( {class: "form-label", for: this.inputId()},
@@ -50,7 +147,7 @@ export class ConfigElement {
             var i = e as HTMLInputElement;
             return i.value;
         }
-        return this.value;
+        return String(this.value);
     }
 
     public setValue(v: string) {
@@ -76,7 +173,7 @@ export class ConfigElement {
 }
 
 export class ConfigColorElement extends ConfigElement {
-    public draw() {
+    public buildHtmlElement() {
         var value = "#000000";
         var v = this.value || 0;
         if (!Number.isNaN(v)) {
@@ -123,15 +220,21 @@ export class ConfigColorElement extends ConfigElement {
 export class ConfigSelectElement extends ConfigElement {
     options: Map<string,string>;
 
-    constructor(cfg: Config, fieldname: string, label: string, options: Map<string, string>, help?: string) {
-        super(cfg, fieldname, label, help);
+    constructor(cfg: Config, visible: VisibleElements,
+        fieldname: string, label: string, options: Map<string, string>, help?: string) {
+        super(cfg, visible, fieldname, label, help);
         this.options = options;
     }
 
 
-    public draw() {
+    public buildHtmlElement() {
 
-        var s = select({class: "form-select", name: this.fieldname, id: this.inputId()});
+        var s = select({class: "form-select", name: this.fieldname, id: this.inputId(),
+            onchange: () => {
+                var i = $(this.inputId()) as HTMLSelectElement;
+                this.dispatchEvent(new CustomEvent('onchange', { detail: { element: this, value: i.value } }));
+            }
+        });
         var v = this.value;
         for (let [key, value] of this.options) {
             van.add(s, option( {value: key, selected: v == key}, value));
@@ -159,11 +262,13 @@ export class ConfigGroup {
     label: string;
     elements: ConfigElement[];
     cfg: Config;
+    visible: boolean;
 
-    constructor(cfg: Config, label: string) {
+    constructor(cfg: Config, visible: VisibleElements, label: string) {
         this.label = label;
         this.cfg = cfg;
         this.elements = new Array<ConfigElement>();
+        this.visible = visible.groupIsVisible(this.constructor.name);
     }
 
     addElement(elem: ConfigElement) : ConfigGroup{
@@ -171,13 +276,17 @@ export class ConfigGroup {
         return this;
     }
 
-    public draw() : HTMLElement {
-        return li({class:"list-group-item bg-gradient rounded", style: "margin-bottom: 5px; padding: 5px"},
+    public buildHtmlElement(): HTMLElement {
+        return li({class:"list-group-item config-group rounded bg-gradient", },
             h5({style: "text-align: right; margin:0"}, this.label),
             this.elements.map((e) => {
                 return e.draw();
             })
         );
+    }
+
+    public draw() : HTMLElement {
+        return this.visible ? this.buildHtmlElement() : div();
     }
 
     public getKeyValues(obj_r?: Object): Object{
@@ -189,22 +298,47 @@ export class ConfigGroup {
         }
         return obj;
     }
+
+    public findConfigElementById(id: string): ConfigElement {
+        for (const elem  of this.elements) {
+            if (elem.fieldname == id) {
+                return elem;
+            }
+        }
+        return null;
+    }
+
 }
 
 class RSSIConfigElement extends ConfigElement {
-    constructor(cfg: Config, idx: number, fieldname: string, label: string, help?: string) {
-        super(cfg, `rssi[${idx}].${fieldname}`, label, help);
+    constructor(cfg: Config, visible: VisibleElements, idx: number, fieldname: string, label: string, help?: string) {
+        super(cfg, visible, `rssi[${idx}].${fieldname}`, label, help);
     }
 }
 
 export class GeneralConfigGroup extends ConfigGroup {
-    constructor(cfg: Config) {
-        super(cfg, "General settings");
-        this.addElement(new ConfigSelectElement(cfg,
-            "game_mode", "Game mode", enumToMap(ConfigGameMode)));
-        this.addElement(new ConfigElement(cfg, "led_num", "Number of LEDs"));
-    }
+    constructor(cfg: Config, visible: VisibleElements) {
+        super(cfg, visible, "General settings");
+        var game_mode = new ConfigSelectElement(cfg, visible,
+            "game_mode", "Game mode", enumToMap(ConfigGameMode))
+        var node_name = new ConfigElement(cfg, visible, "node_name", "Device Name",
+            "Used for CTF, could descripe the location of this device");
 
+        this.addElement(game_mode);
+        this.addElement(node_name);
+
+        var node_mode = new ConfigSelectElement(cfg, visible, "node_mode", "Device Mode",
+            enumToMap(ConfigNodeMode),
+            "Specify if this is a controller device or a client which connects to a controller."
+        );
+        var ctrl_ipv4 = new ConfigElement(cfg, visible, "ctrl_ipv4", "Controller IPv4",
+            "The controller IPv4 address to connect to. If value is 0.0.0.0, GW is used.");
+
+        this.addElement(node_mode);
+        this.addElement(ctrl_ipv4);
+
+        this.addElement(new ConfigElement(cfg, visible, "led_num", "Number of LEDs"));
+    }
 }
 
 const freq_map = new Map([
@@ -224,7 +358,7 @@ export class RSSITap extends ConfigGroup {
     index: number;
     id_prefix = "rssi_config_tab_";
 
-    public draw() : HTMLElement {
+    public buildHtmlElement() : HTMLElement {
         return div(
             this.elements.map((e) => {
                 return e.draw();
@@ -257,7 +391,6 @@ export class RSSITap extends ConfigGroup {
     public selectTab() {
         if (document.body.contains(this.getTabLink())) {
             this.getTabLink().firstChild.click();
-
         }
     }
 
@@ -268,7 +401,8 @@ export class RSSITap extends ConfigGroup {
             'offset_leave',
             'offset_enter',
             'calib_max_lap_count',
-            'calib_min_rssi_peak'
+            'calib_min_rssi_peak',
+            'led_color'
         ];
 
         for(const other_e of other.elements){
@@ -293,17 +427,24 @@ export class RSSITap extends ConfigGroup {
         return null;
     }
 
-    constructor(cfg: Config, idx: number) {
-        super(cfg, "Player settings");
+    public setValue(fieldname: string, value: string) {
+        var e = this.findConfigElementById(`rssi[${this.index}].${fieldname}`);
+        if (e) {
+            e.setValue(value);
+        }
+    }
+
+    constructor(cfg: Config, visible: VisibleElements, idx: number) {
+        super(cfg, visible, "Player settings");
         this.index = idx;
         this.label = (idx + 1).toString();
 
 
-        this.addElement(new RSSIConfigElement(cfg, idx, "name", "Name"));
-        this.addElement(new ConfigSelectElement(cfg, `rssi[${idx}].freq`,
+        this.addElement(new RSSIConfigElement(cfg, visible, idx, "name", "Name"));
+        this.addElement(new ConfigSelectElement(cfg, visible, `rssi[${idx}].freq`,
             "Frequency", freq_map));
 
-        this.addElement(new ConfigColorElement(cfg, `rssi[${idx}].led_color`, "LED color"));
+        this.addElement(new ConfigColorElement(cfg, visible, `rssi[${idx}].led_color`, "LED color"));
 
         [{
             label: "RSSI Peak value (default: 1100)",
@@ -339,7 +480,7 @@ export class RSSITap extends ConfigGroup {
             help: "The minimum RSSI value to detect a 'drone enter gate' during" +
                 " calibration."
         }].forEach((l) => {
-            this.addElement(new RSSIConfigElement(cfg, idx,l.name, l.label, l.help));
+            this.addElement(new RSSIConfigElement(cfg, visible, idx,l.name, l.label, l.help));
         });
     }
 }
@@ -352,6 +493,7 @@ export class TabedRssiConfigGroup extends ConfigGroup {
     minusTabListElement: HTMLLIElement;
     min_tabs: number;
     max_tabs: number;
+    visible_elements: VisibleElements;
 
     public drawTab(e: RSSITap){
         this.plusTabListElement.insertAdjacentElement("beforebegin", e.getTabLink());
@@ -361,7 +503,10 @@ export class TabedRssiConfigGroup extends ConfigGroup {
     private updatePlusMinus() {
         if (this.max_tabs - this.min_tabs == 0) {
             hide(this.tabList);
+            return;
         }
+
+        show(this.tabList);
         if (this.tabs.length >= this.max_tabs) {
             hide(this.plusTabListElement);
         } else {
@@ -378,13 +523,19 @@ export class TabedRssiConfigGroup extends ConfigGroup {
     public addTab(){
         if (this.tabs.length < this.max_tabs) {
             const index = this.tabs.length;
-            const e = new RSSITap(this.cfg, index);
-            if (index > 0 && e.getValue('freq') == "0") {
-                e.initFromOther(this.tabs[index-1]);
+            const new_tab = new RSSITap(this.cfg, this.visible_elements, index);
+            if (index > 0 && new_tab.getValue('freq') == "0") {
+                new_tab.initFromOther(this.tabs[index-1]);
+                for (const freq of freq_map.keys()) {
+                    if (!this.tabs.find((e) => e.getValue("freq") == freq)) {
+                        new_tab.setValue("freq", freq);
+                        break;
+                    }
+                }
             }
-            this.tabs.push(e);
-            this.drawTab(e);
-            e.selectTab();
+            this.tabs.push(new_tab);
+            this.drawTab(new_tab);
+            new_tab.selectTab();
         } else {
             this.tabs[this.tabs.length -1].selectTab();
         }
@@ -428,16 +579,19 @@ export class TabedRssiConfigGroup extends ConfigGroup {
         this.tabList.appendChild(this.minusTabListElement);
     }
 
-    public draw(): HTMLElement {
-
-        setTimeout(()=> {
-            this.tabs[0].selectTab();
-
-        }, 500);
-        return li({class:"list-group-item bg-gradient rounded", style: "margin-bottom: 5px; padding: 5px"},
+    public buildHtmlElement(): HTMLElement {
+        return li({class:"list-group-item config-group rounded bg-gradient"},
             h5({style: "text-align: right; margin:0"}, this.label),
             div(this.tabList, this.tabContent)
         );
+    }
+
+    public draw(): HTMLElement {
+        setTimeout(()=> {
+            if (this.tabs.length > 0)
+                this.tabs[0].selectTab();
+        }, 500);
+        return this.visible ? this.buildHtmlElement(): div();
     }
 
    public getKeyValues(obj_r?: Object): Object{
@@ -448,54 +602,172 @@ export class TabedRssiConfigGroup extends ConfigGroup {
             }
         }
         for (let i = this.tabs.length; i < 8; i++) {
-            obj_r[`rssi[${i}].freq`] = "0";
+            if (obj_r)
+                obj_r[`rssi[${i}].freq`] = "0";
             obj[`rssi[${i}].freq`] = "0";
         }
         return obj;
     }
 
+    public findConfigElementById(id: string): ConfigElement {
+        var e: ConfigElement;
 
-    constructor(cfg: Config, label: string, min_tabs: number, max_tabs: number) {
-        super(cfg, label);
-        this.tabs = new Array<RSSITap>();
-        this.min_tabs = min_tabs;
-        this.max_tabs = max_tabs;
-
-        this.buildTabElements();
-        for(const e of cfg.rssi) {
-            if (e.freq != 0)
-                this.addTab();
-            else
-                break;
+        for(const tab of this.tabs){
+            if (e = tab.findConfigElementById((id)))
+                return e;
         }
+        return null;
+    }
 
-        while(cfg.rssi.length < min_tabs)
-            this.addTab();
+    constructor(cfg: Config, visible: VisibleElements) {
+        super(cfg, visible, visible.getRssiLabel);
+        this.visible_elements = visible;
+        this.tabs = new Array<RSSITap>();
+        this.min_tabs = visible.getRssiMin;
+        this.max_tabs = visible.getRssiMax;
+
+        if (this.visible) {
+            this.buildTabElements();
+
+            for(const rssi of cfg.rssi) {
+                if (rssi.freq == 0 || this.tabs.length >= this.max_tabs)
+                    break;
+                this.addTab();
+            }
+            while(this.tabs.length < this.min_tabs)
+                this.addTab();
+        }
     }
 }
 
 
-
 export class ElrsConfigGroup extends ConfigGroup {
-   constructor(cfg:Config) {
-        super(cfg, "expressLRS/OSD");
+   constructor(cfg:Config, visible: VisibleElements) {
+        super(cfg, visible, "expressLRS/OSD");
 
-        this.addElement(new ConfigElement(cfg, "elrs_uid", "Elrs UID"));
-        this.addElement(new ConfigElement(cfg, "osd_x", "X position on OSD"));
-        this.addElement(new ConfigElement(cfg, "osd_y", "Y position on OSD"));
-        this.addElement(new ConfigElement(cfg, "osd_format", "OSD message format"));
+        this.addElement(new ConfigElement(cfg, visible, "elrs_uid", "Elrs UID"));
+        this.addElement(new ConfigElement(cfg, visible, "osd_x", "X position on OSD"));
+        this.addElement(new ConfigElement(cfg, visible, "osd_y", "Y position on OSD"));
+        this.addElement(new ConfigElement(cfg, visible, "osd_format", "OSD message format"));
         // TODO test OSD element
     }
 }
 
 export class WifiConfigGroup extends ConfigGroup {
-   constructor(cfg: Config) {
-        super(cfg, "WiFi Settings");
+   constructor(cfg: Config, visible: VisibleElements) {
+        super(cfg, visible, "WiFi Settings");
 
-        this.addElement(new ConfigSelectElement(cfg, "wifi_mode", "WIFI Mode",
+        this.addElement(new ConfigSelectElement(cfg, visible, "wifi_mode", "WIFI Mode",
             enumToMap(ConfigWIFIMode)));
-        this.addElement(new ConfigElement(cfg, "ssid", "SSID"));
-        this.addElement(new ConfigElement(cfg, "passphrase", "Passphrase"));
+        this.addElement(new ConfigElement(cfg, visible, "ssid", "SSID"));
+        this.addElement(new ConfigElement(cfg, visible, "passphrase", "Passphrase"));
+    }
+}
+
+export class ConfigForm {
+    groups: Array<ConfigGroup>;
+    root: HTMLElement;
+
+    private findConfigElementById(id: string): ConfigElement {
+        for (const group of this.groups) {
+            var elem = group.findConfigElementById(id);
+            if (elem)
+                return elem;
+        }
+        return null;
+    }
+
+    private visibleByGameMode(cfg: Config) {
+        switch (Number(cfg.game_mode)) {
+            case ConfigGameMode.RACE:
+                return new ElementsRace(cfg);
+            case ConfigGameMode.CTF:
+                return new ElementsCTF(cfg);
+            case ConfigGameMode.SPECTRUM:
+                return new ElementsSpectrum(cfg);
+            default:
+                console.error("Unhandled game_mode: " + cfg.game_mode);
+        }
+        return null;
+    }
+
+    public draw(): HTMLElement{
+        return this.root;
+    }
+
+    private submitButton() {
+            return div({class: "mb-3", style: "margin: 5px 3px"},
+                    button({class: "btn btn-primary", type: "button", id: "config_submit_btn_id", onclick: () => {
+                        var btn = $('config_submit_btn_id') as HTMLButtonElement;
+                        btn.disabled = true;
+                        btn.classList.add("disabled");
+
+                        var cfg = new Config();
+                        cfg.setValues(this.getKeyValues());
+
+                        cfg.save((cfg: Config) => {
+                            if (cfg)
+                                this.updateForm(cfg);
+
+                            btn.classList.remove("disabled");
+                            btn.disabled = false;
+                        });
+                    }}, "Submit")
+                );
+    }
+
+    private updateRoot() {
+        this.root.replaceChildren(
+            form(
+                this.groups.map((g) => {
+                    return g.draw();
+                })
+                ,
+                this.submitButton()
+            )
+        );
+    }
+
+    public getKeyValues(obj_r?: Object): Object{
+        var obj = new Object();
+        for(const group of this.groups){
+            for (const [key, value] of Object.entries(group.getKeyValues(obj_r)) ){
+                obj[key] = value;
+            }
+        }
+        return obj;
+    }
+
+    updateForm(cfg: Config) {
+        this.groups = new Array<ConfigGroup>();
+        var visible = this.visibleByGameMode(cfg);
+        this.groups.push(new GeneralConfigGroup(cfg, visible));
+        this.groups.push(new TabedRssiConfigGroup(cfg, visible));
+        this.groups.push(new ElrsConfigGroup(cfg, visible));
+        this.groups.push(new WifiConfigGroup(cfg, visible));
+
+        var game_mode = this.findConfigElementById("game_mode");
+        if (game_mode) {
+            game_mode.addEventListener("onchange", () => {
+                var cfg = new Config();
+                cfg.setValues(this.getKeyValues());
+                this.updateForm(cfg);
+            });
+        }
+        var node_mode = this.findConfigElementById("node_mode");
+        if (node_mode) {
+            node_mode.addEventListener("onchange", () => {
+                var cfg = new Config();
+                cfg.setValues(this.getKeyValues());
+                this.updateForm(cfg);
+            });
+        }
+        this.updateRoot();
+    }
+
+    constructor(cfg: Config) {
+        this.root = div();
+        this.updateForm(cfg);
     }
 }
 
@@ -503,59 +775,16 @@ export class WifiConfigGroup extends ConfigGroup {
 export class RaceConfigPage extends Page {
     root: HTMLElement;
 
-    drawConfig(cfg: Config) : HTMLElement {
-        var groups = new Array<ConfigGroup>();
-
-        groups.push(new GeneralConfigGroup(cfg));
-        groups.push(new TabedRssiConfigGroup(cfg, "Player Config", 1, 1));
-        groups.push(new ElrsConfigGroup(cfg));
-        groups.push(new WifiConfigGroup(cfg));
-
-        return div(
-            form(
-                groups.map((g) => {
-                    return g.draw();
-                }),
-                div({class: "mb-3", style: "margin: 5px 3px"},
-                    button({class: "btn btn-primary", type: "button", id: "config_submit_btn_id", onclick: () => {
-                        var btn = $('config_submit_btn_id') as HTMLButtonElement;
-                        btn.disabled = true;
-                        btn.classList.add("disabled");
-
-                        var obj = new Config();
-                        groups.forEach((g) => {
-                            g.getKeyValues(obj);
-                        });
-                        var cfg = new Config();
-                        cfg.setValues(obj);
-
-                        cfg.save((cfg: Config) => {
-                            if (cfg)
-                                this.onConfigUpdate(cfg);
-
-                            btn.classList.remove("disabled");
-                            btn.disabled = false;
-                        });
-                    }}, "Submit")
-                )
-            )
-    );
-    }
-
     getDom(): HTMLElement {
         if (! this.root) {
             this.root = div();
         }
+
         var cfg = new Config();
         cfg.update((cfg: Config) => {
-            this.onConfigUpdate(cfg);
+            this.root.replaceChildren(new ConfigForm(cfg).draw());
         });
         return this.root;
-    }
-
-    onConfigUpdate(cfg: Config) {
-        if (this.root)
-            this.root.replaceChildren(this.drawConfig(cfg));
     }
 
     constructor() {

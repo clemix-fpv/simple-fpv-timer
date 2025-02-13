@@ -86,6 +86,11 @@ export enum ConfigWIFIMode {
     STA = 1,
 }
 
+export enum ConfigNodeMode {
+    CONTROLLER = 0,
+    CLIENT = 1,
+}
+
 export enum ConfigGameMode {
     RACE = 0,
     CTF = 1,
@@ -94,6 +99,13 @@ export enum ConfigGameMode {
 
 export class Config {
     rssi: RSSIConfig[];
+
+    game_mode: ConfigGameMode;
+    node_name: string;
+    node_mode: number;
+    ctrl_ipv4: string;
+    led_num: number;
+
 
     elrs_uid: string;
     osd_x: number;
@@ -104,10 +116,6 @@ export class Config {
     ssid: string;
     passphrase: string;
 
-    game_mode: ConfigGameMode;
-
-    led_num: number;
-    race_start_offset: number;
 
     public getValue(name: string): string {
         var matches = name.match(/^rssi\[(\d)\]\.(\w+)$/);

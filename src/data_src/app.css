@@ -1,3 +1,16 @@
 .tab-content {
     padding: 5px;
 }
+
+.config-group {
+    margin-bottom: 5px;
+    padding: 5px;
+}
+
+li.list-group-item fieldset {
+    margin-bottom: 0.5em;
+}
+
+.form-label {
+    margin-bottom: 0;
+}
