@@ -454,7 +454,7 @@ static esp_err_t api_v1_post_handler(httpd_req_t *req)
             if (j_find_str(jr, "player", value, sizeof(value))) {
                 ip4_addr_t ip4 = {0};
                 if (get_remote_ip4(req, &ip4) == ESP_OK) {
-                    if (sft_player_get_or_create(lc, ip4, value))
+                    if (sft_on_player_connect(ctx, ip4, value) == ESP_OK)
                         request_send_ok(req);
                     else
                         request_send_error(req, "Failed to create player: %s", value);
@@ -479,8 +479,7 @@ static esp_err_t api_v1_post_handler(httpd_req_t *req)
                 j_find_int(&lap, "rssi", &rssi) &&
                 j_find_uint64(&lap, "duration", &duration)
             ) {
-                if (sft_player_add_lap(sft_player_get_or_create(lc, ip4, NULL),
-                                       id, rssi, duration, get_millis()))
+                if (sft_on_player_lap(ctx, ip4, id, rssi, duration) == ESP_OK)
                     request_send_ok(req);
                 else
                     request_send_error(req, "Failed to add players lap");
@@ -490,6 +489,19 @@ static esp_err_t api_v1_post_handler(httpd_req_t *req)
 
         } else
             request_send_error(req, "Failed to parse json");
+
+    } else if (strcmp(req->uri, "/api/v1/rssi/update") == 0) {
+        if(j_parse(jr, json_buffer, len)) {
+            int enabled = 0;
+            if (j_find_int(jr, "enabled", &enabled)) {
+                ctx->send_rssi_updates = !! enabled;
+                request_send_ok(req);
+            } else {
+                request_send_error(req, "Failed to parse json");
+            }
+        } else {
+            request_send_error(req, "Failed to parse json");
+        }
 
     } else if ((tok = strstartwith(req->uri, "/api/v1/osd/"))) {
         return api_v1_post_osd(req, ctx, tok, json_buffer, len);
@@ -504,15 +516,20 @@ static esp_err_t api_v1_post_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-void sft_event_rssi_update(void* ctx, esp_event_base_t base, int32_t id, void* event_data)
+void sft_event_rssi_update(void* arg, esp_event_base_t base, int32_t id, void* event_data)
 {
     sft_event_rssi_update_t *ev = (sft_event_rssi_update_t*) event_data;
+    ctx_t *ctx = (ctx_t*) arg;
 
     /* do not use static send buffer (e.g. json_buffer) here, as it happens that events get triggered
      * on other syscalls like send(), thus the static buffer might be already dirty!
      */
     char *buf;
     json_writer_t *jw;
+
+    if (!ctx->send_rssi_updates) {
+        return;
+    }
 
     if (!(buf = malloc(512))) {
         ESP_LOGE(TAG, "RSSI update - out of memory!");

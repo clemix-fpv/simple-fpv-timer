@@ -175,8 +175,22 @@ export class SignalPage extends Page {
         return this.uplot;
     }
 
+    private async sendRssiUpdate(enabled: boolean) {
+        this.update_uplot = enabled;
+        const url = "/api/v1/rssi/update";
+        const v = enabled ? "1" : "0";
+        await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                },
+                body: `{"enable": ${v}}`
+            });
+    }
+
     getDom(): HTMLElement {
         if (!this.root) {
+            this.sendRssiUpdate(false);
             this.root = div(
                 div({class: "input-group flex-nowrap"},
                     button({class: "btn btn-secondary",
@@ -185,13 +199,15 @@ export class SignalPage extends Page {
                         onclick: () => {
                             this.update_uplot = ! this.update_uplot;
                             if (this.update_uplot) {
+                                this.sendRssiUpdate(true);
                                 this.onNextValues();
                                 $("btn_signal_pause").replaceChildren(svg_pause());
                             } else {
+                                this.sendRssiUpdate(false);
                                 $("btn_signal_pause").replaceChildren(svg_play());
                             }
                         }},
-                        svg_pause()
+                        svg_play()
                     ),
                     select({class: "form-select", id: "select_signal_duration",
                         onchange: () => {

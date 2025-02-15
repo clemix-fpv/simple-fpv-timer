@@ -152,6 +152,9 @@ typedef struct {
 
     ip4_addr_t server_ipv4;
     ip4_addr_t clients_ipv4[MAX_PLAYER];
+
+    /* Runtime config */
+    bool send_rssi_updates;
 } ctx_t;
 
 
@@ -159,8 +162,8 @@ void sft_init(ctx_t *ctx);
 
 bool sft_encode_lapcounter(lap_counter_t *lc, json_writer_t *jw);
 bool sft_encode_settings(ctx_t *ctx, json_writer_t *jw);
-player_t* sft_player_get_or_create(lap_counter_t *lc, ip4_addr_t ip4, const char *name);
-lap_t* sft_player_add_lap(player_t *player, int id, int rssi, millis_t duration, millis_t abs_time);
+esp_err_t sft_on_player_connect(ctx_t *ctx, ip4_addr_t ip, const char *name);
+esp_err_t sft_on_player_lap(ctx_t *ctx, ip4_addr_t ip4, int id, int rssi, millis_t duration);
 bool sft_update_settings(ctx_t *ctx);
 void sft_start_calibration(ctx_t *ctx);
 void sft_emit_led_blink(ctx_t *ctx, color_t color);

@@ -111,6 +111,9 @@ esp_err_t led_refresh(led_t *led)
 
 esp_err_t led_set_num_leds(led_t *led, uint32_t num_leds)
 {
+    if (led->num_leds == num_leds)
+        return ESP_OK;
+
     if (led->priv) {
         led_strip_del(led->priv);
         led->priv = NULL;

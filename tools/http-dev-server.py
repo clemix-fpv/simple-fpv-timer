@@ -200,7 +200,7 @@ status = {
     }
 
 
-ctx = type('',(object,),{"players": [], 'config': config, 'status': status, "boo": '3'})()
+ctx = type('',(object,),{"players": [], 'send_rssi_updates': False, 'config': config, 'status': status, "boo": '3'})()
 
 
 
@@ -208,6 +208,8 @@ ctx = type('',(object,),{"players": [], 'config': config, 'status': status, "boo
 @websocket_handler(endpoint="/ws/{path_val}", singleton=True)
 class WSHandler(WebsocketHandler):
     task = None
+    race_ctx = None
+    ctf_ctx = None
 
     def __init__(self) -> None:
         self.uuid: str = uuid4().hex
@@ -229,80 +231,142 @@ class WSHandler(WebsocketHandler):
             return await obj
         return obj
 
-    async def periodic(self, session):
-        try:
-            start = time.time()
-            leave_time = time.time()
-            enter_time = time.time()
-            max_rssi = 0
-            channels = [
+
+    def random_player_update(self, session):
+
+        if self.race_ctx is None:
+            self.race_ctx = {
+                "start": time.time(),
+                "leave_time": time.time(),
+                "enter_time": time.time(),
+                "max_rssi": 0,
+                "channels":  [
                 {"channel" : 5917, "offset": 0, 'data': []},
                                {"channel" : 5695, "offset": 100, 'data': []}
                 #    int freq_plan[8] = { 5658, 5695, 5732, 5769, 5806, 5843, 5880, 5917 };
-            ]
-            idx = 0
+                ],
+                "idx": 0,
+            }
 
+        need_update = False
+        for x in ctx.players[1::]:
+            if random.randint(1, 10) == 5:
+                need_update = x.nextLap()
+
+        if session.is_closed:
+            print("Stop generate rssi values")
+            return
+
+        self.race_ctx['idx'] = (self.race_ctx['idx'] + 1) % len(self.race_ctx['channels'])
+        chan = self.race_ctx['channels'][self.race_ctx['idx']]
+        # print("Index {} ".format(chan))
+
+
+        duration = time.time() - self.race_ctx['start']
+        rssi = math.sin(math.pi * duration/10 + chan['offset']) * ctx.config['rssi[0].peak']
+        if rssi < 200:
+            rssi = 200
+        rssi = randrange(int(rssi-100), int(rssi+100))
+        ctx.status['rssi_raw'] = rssi
+
+        f = ctx.config['rssi[0].filter'] / 100.0
+        if f < 0.01:
+            f = 0.01
+        ctx.status['rssi_smoothed'] = int((f * rssi) + ((1.0-f)* ctx.status['rssi_smoothed']))
+
+        if ctx.status['rssi_smoothed'] > ctx.status['rssi_enter'] and (time.time() - self.race_ctx['leave_time']) > 1 :
+            if ctx.status['drone_in_gate'] == False:
+                self.race_ctx['enter_time'] = time.time()
+                self.race_ctx['max_rssi'] = 0
+            ctx.status['drone_in_gate'] = True
+            if self.race_ctx['max_rssi'] < ctx.status['rssi_smoothed']:
+                self.race_ctx['max_rssi'] = ctx.status['rssi_smoothed']
+
+        if ctx.status['rssi_smoothed'] < ctx.status['rssi_leave'] and ctx.status['drone_in_gate'] and (time.time() - self.race_ctx['enter_time']) > 1 :
+            self.race_ctx['leave_time'] = time.time()
+            ctx.status['drone_in_gate'] = False
+            # print("leave:{} enter:{}".format(leave_time, self.race_ctx['enter_time']))
+            ctx.players[0].addLap((int)((self.race_ctx['leave_time'] - self.race_ctx['enter_time']) * 1000), self.race_ctx['max_rssi'])
+            need_update = True
+
+        chan['data'].append({
+                't': int(time.time() * 1000),
+                'r': ctx.status['rssi_raw'],
+                's': ctx.status['rssi_smoothed'],
+                'i': ctx.status['drone_in_gate']
+                })
+        if (len(chan['data']) >= 3):
+            json_data = {
+                'type': "rssi",
+                'freq': chan['channel'],
+                'data': chan['data'],
+            }
+            if ctx.send_rssi_updates:
+                session.send_text(json.dumps(json_data))
+            chan['data'] = []
+
+        if need_update:
+            self.sendPlayers(session)
+
+    def random_ctf_update(self, session):
+        if self.ctf_ctx is None:
+            self.ctf_ctx = {}
+# {"team_names":["BLUE","YELLOW"],"flags":[{"ipv4":"0.0.0.0","name":"","teams":[{"captured_ms":0},{"captured_ms":0}]}]}
+            teams = ["BLUE", "RED", "BLUE", "RED"]
+            teams = []
+            for o in ctx.config:
+                m = re.match(r'rssi\[(\d+)\].name', o)
+                if m:
+                    if ctx.config['rssi[{}].freq'.format(m.group(1))] != 0:
+                        if len(ctx.config[o]) > 0:
+                            teams.append(ctx.config[o])
+
+            self.ctf_ctx['time'] = time.time()
+            self.ctf_ctx['json'] = {
+                "team_names": teams,
+                "nodes": [
+                    {
+                        "name": "NodeA",
+                        "ipv4": "0.0.0.0",
+                        "current": 1,
+                        "captured_ms": [ 0 for i in teams]
+                    },
+                    {
+                        "name": "NodeB",
+                        "ipv4": "192.168.2.22",
+                        "current": 65,
+                        "captured_ms": [ 0 for i in teams]
+                    },
+                ]
+            }
+
+        elapsed = time.time() - self.ctf_ctx['time']
+
+        if (elapsed > 1):
+            for n in self.ctf_ctx['json']['nodes']:
+
+                idx = random.randint(1, len(n['captured_ms'])) - 1;
+                n['current'] = idx;
+                n['captured_ms'][idx] += (int)(elapsed * 1000)
+
+            session.send(json.dumps({
+                'type': 'ctf',
+                'ctf': self.ctf_ctx['json']
+            }))
+            self.ctf_ctx['time'] = time.time();
+
+
+
+
+    async def periodic(self, session):
+        try:
             while True:
                 await asyncio.sleep(0.2)
+                if (ctx.config['game_mode'] == 0):
+                    self.random_player_update(session);
 
-                need_update = False
-                for x in ctx.players[1::]:
-                    if random.randint(1, 10) == 5:
-                        need_update = x.nextLap()
-
-                if session.is_closed:
-                    print("Stop generate rssi values")
-                    return
-
-                idx = (idx + 1) % len(channels)
-                chan = channels[idx]
-                # print("Index {} ".format(chan))
-
-
-                duration = time.time() - start
-                rssi = math.sin(math.pi * duration/10 + chan['offset']) * ctx.config['rssi[0].peak']
-                if rssi < 200:
-                    rssi = 200
-                rssi = randrange(int(rssi-100), int(rssi+100))
-                ctx.status['rssi_raw'] = rssi
-
-                f = ctx.config['rssi[0].filter'] / 100.0
-                if f < 0.01:
-                    f = 0.01
-                ctx.status['rssi_smoothed'] = int((f * rssi) + ((1.0-f)* ctx.status['rssi_smoothed']))
-
-                if ctx.status['rssi_smoothed'] > ctx.status['rssi_enter'] and (time.time() - leave_time) > 1 :
-                    if ctx.status['drone_in_gate'] == False:
-                        enter_time = time.time()
-                        max_rssi = 0
-                    ctx.status['drone_in_gate'] = True
-                    if max_rssi < ctx.status['rssi_smoothed']:
-                        max_rssi = ctx.status['rssi_smoothed']
-
-                if ctx.status['rssi_smoothed'] < ctx.status['rssi_leave'] and ctx.status['drone_in_gate'] and (time.time() - enter_time) > 1 :
-                    leave_time = time.time()
-                    ctx.status['drone_in_gate'] = False
-                    # print("leave:{} enter:{}".format(leave_time, enter_time))
-                    ctx.players[0].addLap((int)((leave_time - enter_time) * 1000), max_rssi)
-                    need_update = True
-
-                chan['data'].append({
-                        't': int(time.time() * 1000),
-                        'r': ctx.status['rssi_raw'],
-                        's': ctx.status['rssi_smoothed'],
-                        'i': ctx.status['drone_in_gate']
-                        })
-                if (len(chan['data']) >= 3):
-                    json_data = {
-                        'type': "rssi",
-                        'freq': chan['channel'],
-                        'data': chan['data'],
-                    }
-                    session.send_text(json.dumps(json_data))
-                    chan['data'] = []
-
-                if need_update:
-                    self.sendPlayers(session)
+                elif ctx.config['game_mode'] == 1: # CTF
+                    self.random_ctf_update(session);
 
         except Exception as e:
             print (e)
@@ -438,6 +502,12 @@ def handle_api_v1_time(json=JSONBody()):
 
     return json
 
+@request_map("/api/v1/rssi/update", method=["POST"])
+def handle_api_v1_time(json=JSONBody()):
+    if 'enable' in json:
+        ctx.send_rssi_updates = json['enable'] == 1
+
+    return {'status':"ok"}
 
 @request_map("/{file}", method="GET")
 def default_static(file = PathValue()):
@@ -462,6 +532,7 @@ def home():
     return default_static("index.html")
 
 
+# TODO
 if __name__ == "__main__":
     ip = "0.0.0.0"
     port = 9090

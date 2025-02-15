@@ -291,6 +291,7 @@ void task_led_on_cfg_change(void* ctx, esp_event_base_t base, int32_t id, void* 
     if (task->cfg.game_mode == CFG_GAME_MODE_CTF)
         size --;
 
+    led_set_num_leds(&task->led, task->cfg.led_num);
     task_led_command_append(task, cmds, size);
 }
 

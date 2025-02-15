@@ -104,3 +104,18 @@ const struct config_meta* cfg_meta();
 
 void cfg_dump(struct config*);
 bool cfg_json_encode(struct config_data * cfg, json_writer_t *jw);
+
+/* Helper makros for config eeprom/running handling */
+#define cfg_differ_str(cfg, field) \
+    (memcmp((cfg)->eeprom.field, (cfg)->running.field, sizeof(cfg->running.field)) != 0)
+
+#define cfg_set_running_str(cfg, field) \
+    memcpy((cfg)->running.field, (cfg)->eeprom.field, sizeof((cfg)->running.field))
+
+#define cfg_differ(cfg, field) \
+    (memcmp(&(cfg)->eeprom.field, &(cfg)->running.field, sizeof((cfg)->running.field)) != 0)
+
+#define cfg_set_running(cfg, field) \
+    memcpy(&(cfg)->running.field, &(cfg)->eeprom.field, sizeof((cfg)->running.field))
+
+

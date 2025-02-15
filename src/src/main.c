@@ -87,6 +87,10 @@ void app_main() {
     /*ctx.cfg.eeprom.wifi_mode = 0;*/
 
     wifi_setup(&ctx.wifi, &ctx.cfg.eeprom);
+    cfg_set_running_str(&ctx.cfg, elrs_uid);
+    cfg_set_running(&ctx.cfg, wifi_mode);
+    cfg_set_running_str(&ctx.cfg, passphrase);
+    cfg_set_running_str(&ctx.cfg, ssid);
     /* Check if STA connection was successful, if not fallback to AP_MODE */
     if (ctx.wifi.state == WIFI_STA && !ctx.wifi.sta_connected) {
         ctx.cfg.eeprom.wifi_mode = CFG_WIFI_MODE_AP;
@@ -108,12 +112,14 @@ void app_main() {
     cfg_eeprom_to_running(&ctx.cfg);
 
     task_led_init(&ctx);
+    cfg_set_running(&ctx.cfg, led_num);
+
     task_rssi_init(&ctx);
 
     int i = 0;
     int reset_cnt = 0;
     while (ctx.gui) {
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        vTaskDelay(pdMS_TO_TICKS(100));
         if ((i++  % 30) == 0)
             print_mem_usage();
 

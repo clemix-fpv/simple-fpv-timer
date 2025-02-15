@@ -140,7 +140,7 @@ static void cfg_data_init(struct config_data *eeprom)
     eeprom->rssi[0].offset_enter = 80;
     eeprom->rssi[0].offset_leave = 70;
 
-    eeprom->wifi_mode = CFG_WIFI_AP;
+    eeprom->wifi_mode = CFG_WIFI_MODE_AP;
 #ifdef DEFAULT_SSID
     strcpy(eeprom->ssid, DEFAULT_SSID);
 #else

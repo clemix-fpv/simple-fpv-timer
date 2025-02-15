@@ -2,6 +2,7 @@
 
 #include "simple_fpv_timer.h"
 #include "config.h"
+#include "esp_err.h"
 #include "gui.h"
 #include "json.h"
 #include "esp_log.h"
@@ -12,6 +13,7 @@
 #include <esp_netif_ip_addr.h>
 #include <string.h>
 #include "lwip/def.h"
+#include "lwip/ip_addr.h"
 #include "osd.h"
 #include "timer.h"
 
@@ -199,6 +201,43 @@ struct player_s* sft_player_get_or_create(lap_counter_t *lc, ip4_addr_t ip4, con
     return NULL;
 }
 
+esp_err_t sft_ctf_connect_flag(ctx_t *ctx, ip4_addr_t ip, const char *name)
+{
+    ctf_t *ctf = &ctx->ctf;
+    ctf_flag_t *flag = NULL;
+
+    int i;
+
+    for(i=1; i < MAX_PLAYER; i++)
+        if (ctf->flags[i].ipv4.addr == 0)
+            break;
+
+    if (i >= MAX_PLAYER)
+        return ESP_ERR_NO_MEM;
+
+    flag = &ctf->flags[i];
+    memset (flag, 0, sizeof(ctf_flag_t));
+
+    flag->ipv4 = ip;
+    for(i = 0; i < MAX_PLAYER; i++) {
+        flag->teams[i].name = ctf->team_names[i];
+    }
+    return ESP_OK;
+}
+
+esp_err_t sft_on_player_connect(ctx_t *ctx, ip4_addr_t ip, const char *name)
+{
+    switch(ctx->cfg.eeprom.game_mode) {
+        case CFG_GAME_MODE_RACE:
+            return sft_player_get_or_create(&ctx->lc, ip, name)?
+                ESP_OK : ESP_ERR_NO_MEM;
+        case CFG_GAME_MODE_CTF:
+            return sft_ctf_connect_flag(ctx, ip, name);
+        default:
+        return ESP_ERR_NOT_FOUND;
+    }
+}
+
 struct lap_s* sft_player_add_lap(struct player_s *player,
         int id, int rssi, millis_t duration, millis_t abs_time)
 {
@@ -216,6 +255,16 @@ struct lap_s* sft_player_add_lap(struct player_s *player,
     lap->abs_time_ms = abs_time;
 
     return lap;
+}
+
+esp_err_t sft_on_player_lap(ctx_t *ctx, ip4_addr_t ip4, int id, int rssi, millis_t duration) {
+
+    if (sft_player_add_lap(sft_player_get_or_create(&ctx->lc, ip4, NULL),
+                                       id, rssi, duration, get_millis())) {
+        return ESP_OK;
+    }
+
+    return ESP_ERR_NO_MEM;
 }
 
 lap_t * sft_player_get_fastes_lap(player_t *p)
@@ -434,7 +483,21 @@ static void sft_ctf_send_status_update(ctx_t *ctx)
     jw = &jw_obj;
     jw_init(jw, buf, buf_len);
 
+    int num_teams = 0;
     jw_object(jw) {
+
+        jw_kv(jw, "team_names") {
+            jw_array(jw) {
+                for(num_teams=0; num_teams < MAX_PLAYER; num_teams++) {
+                    const char *name = ctf->team_names[num_teams];
+
+                    if (*name != '\0')
+                        jw_str(jw, name);
+                    else
+                        break;
+                }
+            }
+        }
         jw_kv(jw, "flags") {
             jw_array(jw) {
                 for(i=0; i < MAX_PLAYER; i++) {
@@ -451,10 +514,9 @@ static void sft_ctf_send_status_update(ctx_t *ctx)
 
                         jw_kv(jw, "teams") {
                             jw_array(jw) {
-                                for(j=0; j < MAX_PLAYER; j++) {
+                                for(j=0; j < num_teams; j++) {
                                     ctf_team_t *team = &flag->teams[j];
                                     jw_object(jw) {
-                                        jw_kv_str(jw, "name", team->name);
                                         jw_kv_uint64(jw, "captured_ms",
                                                      team->captured_ms);
                                     }
@@ -476,18 +538,19 @@ static void sft_ctf_send_status_update(ctx_t *ctx)
     free(buf);
 }
 
-static void sft_ctf_on_timer(void* arg)
+static void sft_ctf_on_1s_timer(void* arg)
 {
     ctx_t *ctx = (ctx_t*) arg;
+
+    ESP_LOGI(TAG, "On sft_ctf_on_1s_timer!");
 
     if( xSemaphoreTake(ctx->sem, ( TickType_t ) 10 ) == pdTRUE ) {
         if (ctx->ctf.flags[0].current) {
             ctx->ctf.flags[0].current->captured_ms+=1000;
-
-            sft_ctf_send_status_update(ctx);
         }
         xSemaphoreGive(ctx->sem);
     }
+    sft_ctf_send_status_update(ctx);
 }
 
 void sft_ctf_mode_deinit(ctx_t *ctx)
@@ -513,12 +576,12 @@ void sft_ctf_mode_init(ctx_t *ctx)
     }
 
     const esp_timer_create_args_t timer_args = {
-        .callback = &sft_ctf_on_timer,
+        .callback = &sft_ctf_on_1s_timer,
         .arg = (void*) ctx,
         .name = "sft-ctf-timer"
     };
     ESP_ERROR_CHECK(esp_timer_create(&timer_args, &ctx->ctf.timer));
-    esp_timer_start_periodic(ctx->ctf.timer, 1000);
+    esp_timer_start_periodic(ctx->ctf.timer, 1000 * 1000);
 }
 
 void sft_change_game_mode(ctx_t *ctx, uint16_t new_mode, uint16_t old_mode)
@@ -567,16 +630,6 @@ bool sft_update_settings(ctx_t *ctx)
     lap_counter_t *lc = &ctx->lc;
     config_t *cfg = &ctx->cfg;
 
-    #define cfg_differ_str(cfg, field) \
-        (memcmp(cfg->eeprom.field, cfg->running.field, sizeof(cfg->running.field)) != 0)
-    #define cfg_set_running_str(cfg, field) \
-        memcpy(cfg->running.field, cfg->eeprom.field, sizeof(cfg->running.field))
-
-    #define cfg_differ(cfg, field) \
-        (memcmp(&cfg->eeprom.field, &cfg->running.field, sizeof(cfg->running.field)) != 0)
-    #define cfg_set_running(cfg, field) \
-        memcpy(&cfg->running.field, &cfg->eeprom.field, sizeof(cfg->running.field))
-
 
     #define update_rssi(cfg, idx, name_changed)                         \
     if (cfg_differ_str(cfg, rssi[idx].name)) {                          \
@@ -613,6 +666,7 @@ bool sft_update_settings(ctx_t *ctx)
     ESP_LOGI(TAG, "%s:%d ", __func__, __LINE__);
     cfg_set_running_str(cfg, magic);
 
+    cfg_set_running(cfg, led_num);
 
     ESP_LOGI(TAG, "%s:%d ", __func__, __LINE__);
     if (cfg_differ(cfg, osd_format)) {
@@ -680,8 +734,14 @@ void sft_register_me(ctx_t *ctx, ip4_addr_t *server)
     jw_init(&jw, json, sizeof(json));
 
     snprintf(url, sizeof(url), "http://"IPSTR"/api/v1/player/connect", IP2STR(server));
-    jw_object(&jw){
-        jw_kv_str(&jw, "player", ctx->cfg.eeprom.rssi[0].name);
+    if (ctx->cfg.eeprom.game_mode == CFG_GAME_MODE_RACE) {
+        jw_object(&jw){
+            jw_kv_str(&jw, "player", ctx->cfg.eeprom.rssi[0].name);
+        }
+    } else {
+        jw_object(&jw){
+            jw_kv_str(&jw, "player", ctx->cfg.eeprom.node_name);
+        }
     }
 
     esp_http_client_config_t cfg = {
@@ -773,6 +833,27 @@ void sft_event_drone_enter(void* ctx, esp_event_base_t base, int32_t id, void* e
     sft_on_drone_enter(ctx, ev->freq, ev->rssi, ev->abs_time_ms);
 }
 
+ip4_addr_t get_gw(ctx_t *ctx) {
+    esp_netif_ip_info_t ipinfo;
+    ip4_addr_t ip = {0};
+
+    esp_netif_t* netif=NULL;
+    if (ctx->cfg.eeprom.wifi_mode == CFG_WIFI_MODE_STA) {
+        netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    } else {
+        netif = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
+    }
+
+    if (esp_netif_get_ip_info(netif,&ipinfo) == ESP_OK) {
+        printf("IP:  " IPSTR "\n", IP2STR(&ipinfo.ip));
+        printf("GW:  " IPSTR "\n", IP2STR(&ipinfo.gw));
+        printf("MSK: " IPSTR "\n", IP2STR(&ipinfo.netmask));
+        ip.addr = ipinfo.gw.addr;
+        return ip;
+    }
+
+    return ip;
+}
 
 
 void sft_init(ctx_t *ctx)
@@ -780,6 +861,15 @@ void sft_init(ctx_t *ctx)
     esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, ip_event_handler, ctx);
     esp_event_handler_register(SFT_EVENT, SFT_EVENT_DRONE_PASSED, sft_event_drone_passed, ctx);
     esp_event_handler_register(SFT_EVENT, SFT_EVENT_DRONE_ENTER, sft_event_drone_enter, ctx);
+
+    if (ctx->cfg.eeprom.node_mode == CFG_NODE_MODE_CHILD) {
+        ip4_addr_t ctrl_ip;
+        ctrl_ip.addr = ctx->cfg.eeprom.ctrl_ipv4;
+        if (ctrl_ip.addr == 0)
+            ctrl_ip = get_gw(ctx);
+
+        sft_register_me(ctx, &ctrl_ip);
+    }
 }
 
 
