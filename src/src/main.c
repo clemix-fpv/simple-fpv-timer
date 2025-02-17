@@ -3,6 +3,7 @@
 
 #include <limits.h>
 #include <freertos/FreeRTOS.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include "esp_chip_info.h"
 #include "esp_event.h"
@@ -32,30 +33,35 @@ static ctx_t ctx = {0};
 
 void print_mem_usage()
 {
-  struct cap2name {
-    unsigned int cap;
-    const char * name;
-  };
-  static const struct cap2name caps[] =  {
-    { MALLOC_CAP_8BIT,  "8Bit" },
-    { MALLOC_CAP_EXEC,  "EXEC" },
-    { MALLOC_CAP_32BIT, "32bit"},
-    { MALLOC_CAP_8BIT,  "8bit"},
-    { MALLOC_CAP_DMA,   "DMA" },
-    { 0, NULL },
-  };
-  const struct cap2name *cap;
+    static millis_t last = 0;
+
+    if (get_millis() - last < 1000)
+        return;
+    last = get_millis();
+
+    struct cap2name {
+        unsigned int cap;
+        const char * name;
+    };
+    static const struct cap2name caps[] =  {
+        { MALLOC_CAP_8BIT,  "8Bit" },
+        { MALLOC_CAP_EXEC,  "EXEC" },
+        { MALLOC_CAP_32BIT, "32bit"},
+        { MALLOC_CAP_8BIT,  "8bit"},
+        { MALLOC_CAP_DMA,   "DMA" },
+        { 0, NULL },
+    };
+    const struct cap2name *cap;
 
 
-  for(cap = caps; cap->name; cap++){
-//    heap_caps_print_heap_info(cap->cap);
+    for(cap = caps; cap->name; cap++){
+        //    heap_caps_print_heap_info(cap->cap);
 
-    size_t total = heap_caps_get_total_size(cap->cap);
-    size_t free = heap_caps_get_free_size(cap->cap);
-    printf("MEMORY %7s used:%3u%% free:%5u total:%5u\n", cap->name,  ((total-free) * 100) / total, free, total );
-  }
+        size_t total = heap_caps_get_total_size(cap->cap);
+        size_t free = heap_caps_get_free_size(cap->cap);
+        printf("MEMORY %7s used:%3u%% free:%5u total:%5u\n", cap->name,  ((total-free) * 100) / total, free, total );
+    }
 }
-
 
 void factory_reset() {
 
@@ -66,6 +72,79 @@ void factory_reset() {
     esp_restart();
 }
 
+void emit_led_color() {
+    static color_t colors[] = {
+        COLOR_RED,
+        COLOR_GREEN,
+        COLOR_BLUE,
+        COLOR(252, 186, 3),
+        COLOR(207, 3,   252),
+        COLOR(3,   252, 252),
+        COLOR(252, 3,   119),
+        COLOR(252, 102, 3),
+    };
+    static unsigned int idx = 0;
+    sft_led_command_t *cmd = NULL;
+    uint16_t sz = sizeof(sft_event_led_command_t) + sizeof(sft_led_command_t);
+    sft_event_led_command_t *ev = calloc(1, sz);
+
+    ev->num = 1;
+    cmd = &ev->commands[0];
+    cmd->num = 100;
+    cmd->duration = 1;
+    cmd->color = colors[idx++];
+    if (idx >= (sizeof(colors)/sizeof(colors[0])))
+        idx = 0;
+
+    esp_event_post(SFT_EVENT, SFT_EVENT_LED_COMMAND, ev, sz, pdMS_TO_TICKS(500));
+    free(ev);
+}
+
+#define BTN_MAX_DOUBLE_CLICK_DELAY 300
+
+void on_button(millis_t duration, int cnt) {
+
+    ESP_LOGI(TAG, "BUTTON: duration:%"PRIu64" cnt:%"PRIu16, duration, cnt);
+
+    if (cnt == 1 && duration < BTN_MAX_DOUBLE_CLICK_DELAY) {
+        emit_led_color();
+    } else if (cnt == 1 && duration > 10 * 1000)
+        factory_reset();
+
+}
+
+void check_button()
+{
+    static bool pressed = false;
+    static millis_t released_time = 0;
+    static millis_t pressed_time = 0;
+    static int released_cnt = 0;
+    millis_t t = get_millis();
+
+
+    if (pressed == false && released_cnt > 0 && t - released_time > BTN_MAX_DOUBLE_CLICK_DELAY) {
+        on_button(released_time - pressed_time, released_cnt);
+        released_cnt = 0;
+    }
+
+    if (gpio_get_level(GPIO_NUM_0) == 0) {
+        /*pressed */
+        if (!pressed) {
+            pressed_time = t;
+            pressed = true;
+        }
+    } else {
+        if (pressed) {
+            if (t - released_time < BTN_MAX_DOUBLE_CLICK_DELAY)
+                released_cnt++;
+            else {
+                released_cnt = 1;
+            }
+            released_time = get_millis();
+            pressed = false;
+        }
+    }
+}
 
 void app_main() {
 
@@ -87,10 +166,6 @@ void app_main() {
     /*ctx.cfg.eeprom.wifi_mode = 0;*/
 
     wifi_setup(&ctx.wifi, &ctx.cfg.eeprom);
-    cfg_set_running_str(&ctx.cfg, elrs_uid);
-    cfg_set_running(&ctx.cfg, wifi_mode);
-    cfg_set_running_str(&ctx.cfg, passphrase);
-    cfg_set_running_str(&ctx.cfg, ssid);
     /* Check if STA connection was successful, if not fallback to AP_MODE */
     if (ctx.wifi.state == WIFI_STA && !ctx.wifi.sta_connected) {
         ctx.cfg.eeprom.wifi_mode = CFG_WIFI_MODE_AP;
@@ -112,24 +187,15 @@ void app_main() {
     cfg_eeprom_to_running(&ctx.cfg);
 
     task_led_init(&ctx);
-    cfg_set_running(&ctx.cfg, led_num);
-
     task_rssi_init(&ctx);
 
     int i = 0;
     int reset_cnt = 0;
     while (ctx.gui) {
-        vTaskDelay(pdMS_TO_TICKS(100));
-        if ((i++  % 30) == 0)
+        vTaskDelay(pdMS_TO_TICKS(50));
+        if ((i++  % 600) == 0)
             print_mem_usage();
-
-        if (gpio_get_level(GPIO_NUM_0) == 0) {
-            reset_cnt++;
-            if(reset_cnt > 10) {
-                factory_reset();
-            }
-        }
-
+	check_button();
     }
 
     ESP_ERROR_CHECK(gui_stop(&ctx));
