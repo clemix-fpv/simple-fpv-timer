@@ -79,11 +79,20 @@ jsmntok_t * j_get_kv(json_t *j, char *key, size_t klen, char *value, size_t vlen
 {
     jsmntok_t *t;
     json_t v = {0};
+    int t_len;
 
-    if ((t = j_get_str(j, key, klen)) &&
-                j_next(j, &v) &&
-                j_get_str(&v, value, vlen) ){
-        return t;
+    if (j_get_str(j, key, klen) && j_next(j, &v)) {
+
+        if ((t = j_get_str(&v, value, vlen)))
+            return t;
+
+        t = v.tokens;
+        t_len = t->end - t->start;
+        if (vlen > t_len && t->type == JSMN_PRIMITIVE) {
+            memcpy(value, &v.buf[t->start], t_len);
+            value[t_len] = 0;
+            return t;
+        }
     }
     return NULL;
 }
