@@ -8,6 +8,7 @@
 
 #include "config.h"
 #include "esp_err.h"
+#include "esp_http_client.h"
 #include "esp_netif.h"
 #include "esp_netif_types.h"
 #include "lwip/ip_addr.h"
@@ -22,7 +23,8 @@
 static const char * TAG = "http";
 static char json_buffer[1024*4];
 static json_t json_parser;
-static jsmntok_t jsmn_tokens[128];
+#define JSMN_TOKENS_MAX 512
+static jsmntok_t jsmn_tokens[JSMN_TOKENS_MAX];
 static char tmp_buf64[64];
 static char tmp2_buf64[64];
 
@@ -46,7 +48,7 @@ void session_ctx_free(void *s)
  */
 static json_t* json_parse_static_buffer(int length)
 {
-    j_init(&json_parser, jsmn_tokens, 128);
+    j_init(&json_parser, jsmn_tokens, JSMN_TOKENS_MAX);
 
     json_buffer[sizeof(json_buffer) -1 ] = 0;
     if (length < 0) {
@@ -250,7 +252,7 @@ static esp_err_t api_v1_post_osd(httpd_req_t *req, ctx_t *ctx, const char *uri_t
     static json_writer_t jw;
     int x, y;
 
-    j_init(jr, jsmn_tokens, 128);
+    j_init(jr, jsmn_tokens, JSMN_TOKENS_MAX);
 
     if (streq(uri_tok, "display_text") || streq(uri_tok, "set_text")) {
 
@@ -313,7 +315,7 @@ static esp_err_t api_v1_post_time_sync(httpd_req_t *req, ctx_t *ctx,
     static json_writer_t jw_obj, *jw;
 
     /* the given post_data, is a pointer into static json_buffer, we will
-     * write our responds after it, as we need the mesage while writing
+     * write our responds after it, as we need the message while writing
      * the response. */
     char *wbuf =  json_buffer + len + 1;
     int wbuf_len = sizeof(json_buffer) - len - 1;
@@ -382,7 +384,7 @@ static esp_err_t api_v1_post_handler(httpd_req_t *req)
     const char *tok;
 
     json_buffer[0] = '\0';
-    j_init(jr, jsmn_tokens, 128);
+    j_init(jr, jsmn_tokens, JSMN_TOKENS_MAX);
 
     jw = &jwmem;
     jw_init(jw, json_buffer, sizeof(json_buffer));
@@ -396,10 +398,14 @@ static esp_err_t api_v1_post_handler(httpd_req_t *req)
 
     ESP_LOGI(TAG, "%s:%d URI: %s data(%d): %.*s", __func__, __LINE__, req->uri, len, len, json_buffer);
     if (strcmp(req->uri, "/api/v1/settings") == 0) {
+        ESP_LOGE(TAG, "%s:%d", __func__, __LINE__);
         if(j_parse(jr, json_buffer, len)) {
+        ESP_LOGE(TAG, "%s:%d", __func__, __LINE__);
             json_t e = {0};
             while(j_next(jr, &e)) {
+        ESP_LOGE(TAG, "%s:%d", __func__, __LINE__);
                 if (j_get_kv(&e, key, sizeof(key), value, sizeof(value))) {
+        ESP_LOGE(TAG, "%s:%d", __func__, __LINE__);
                     if (cfg_set_param(&ctx->cfg, key, value) != ESP_OK) {
                         jw_object(jw) {
                             jw_kv_str(jw, "status", "error");
@@ -673,4 +679,89 @@ esp_err_t gui_send_all(ctx_t *ctx, const char *msg)
         }
     }
     return ESP_OK;
+}
+
+esp_err_t gui_send_http2(ctx_t *ctx, const char *url, const char *json)
+{
+    esp_err_t err;
+    char buf[8];
+
+    snprintf(buf, sizeof(buf), "%"PRId16, strlen(json));
+    ESP_LOGI(TAG, "send_http(%s, %s)", url, buf);
+
+
+    esp_http_client_config_t cfg = {
+        .url = url,
+        .method = HTTP_METHOD_POST,
+        .buffer_size_tx = 1024 * 4,
+        .buffer_size = 1024 * 4,
+    };
+    esp_http_client_handle_t client = esp_http_client_init(&cfg);
+
+    /*esp_http_client_set_url(client, url);*/
+    /*esp_http_client_set_method(client, HTTP_METHOD_POST);*/
+    esp_http_client_set_header(client, "Content-Type", "application/json");
+    esp_http_client_set_header(client, "Connection", "Keep-Alive");
+    esp_http_client_set_header(client, "Keep-Alive", "timeout=5, max=200");
+    esp_http_client_set_header(client, "Content-Length", buf);
+    esp_http_client_set_post_field(client, json, strlen(json));
+    err = esp_http_client_perform(client);
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "HTTP POST Status = %d, content_length = %"PRId64,
+                esp_http_client_get_status_code(client),
+                esp_http_client_get_content_length(client));
+        return ESP_OK;
+    } else {
+        ESP_LOGE(TAG, "HTTP POST request failed: %s", esp_err_to_name(err));
+    }
+    return err;
+}
+
+
+esp_err_t gui_send_http(ctx_t *ctx, const char *url, const char *post_data) {
+
+    // Declare local_response_buffer with size (MAX_HTTP_OUTPUT_BUFFER + 1) to prevent out of bound access when
+    // it is used by functions like strlen(). The buffer should only be used upto size MAX_HTTP_OUTPUT_BUFFER
+#define MAX_HTTP_OUTPUT_BUFFER 512
+    static char output_buffer[MAX_HTTP_OUTPUT_BUFFER + 1] = {0};   // Buffer to store response of http request
+    int content_length = 0;
+    esp_err_t err;
+
+    esp_http_client_config_t config = {
+        .url = url,
+        .method = HTTP_METHOD_POST,
+    };
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+
+    // GET Request
+    esp_http_client_set_url(client, url);
+    esp_http_client_set_method(client, HTTP_METHOD_POST);
+    esp_http_client_set_header(client, "Content-Type", "application/json");
+    err = esp_http_client_open(client, strlen(post_data));
+
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to open HTTP connection: %s", esp_err_to_name(err));
+    } else {
+        int wlen = esp_http_client_write(client, post_data, strlen(post_data));
+        if (wlen < 0) {
+            ESP_LOGE(TAG, "HTTP client failed Write failed %d", wlen);
+        }
+        content_length = esp_http_client_fetch_headers(client);
+        if (content_length < 0) {
+            ESP_LOGE(TAG, "HTTP client fetch headers failed");
+        } else {
+            int data_read = esp_http_client_read_response(client, output_buffer, MAX_HTTP_OUTPUT_BUFFER);
+            if (data_read >= 0) {
+                ESP_LOGI(TAG, "HTTP POST Status = %d, content_length = %"PRId64,
+                esp_http_client_get_status_code(client),
+                esp_http_client_get_content_length(client));
+                ESP_LOG_BUFFER_HEX(TAG, output_buffer, strlen(output_buffer));
+                ESP_LOGI(TAG, "%.*s", strlen(output_buffer), output_buffer);
+            } else {
+                ESP_LOGE(TAG, "Failed to read response");
+            }
+        }
+    }
+    esp_http_client_cleanup(client);
+    return err;
 }
