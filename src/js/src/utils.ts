@@ -78,4 +78,13 @@ export function nullOrUndef(variable: any, default_val: string): any | string {
     return variable;
 }
 
+export function numberToColor(v: number): string {
+    v = v as number;
+    var r = (v & 0xff0000) >> 16;
+    var g = (v & 0x00ff00) >> 8;
+    var b = (v & 0x0000ff);
+    return "#" + r.toString(16).padStart(2, '0') +
+        g.toString(16).padStart(2,'0') + b.toString(16).padStart(2,'0');
+}
+
 
