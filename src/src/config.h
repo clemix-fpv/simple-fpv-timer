@@ -79,7 +79,7 @@ struct config {
 
 
 
-enum config_type { UINT16, UINT32, MACADDR, STRING};
+enum config_type { UINT16, UINT32, MACADDR, STRING, IPV4};
 struct config_meta {
     const char *name;
     enum config_type type;
@@ -104,6 +104,7 @@ const struct config_meta* cfg_meta();
 
 void cfg_dump(struct config*);
 bool cfg_json_encode(struct config_data * cfg, json_writer_t *jw);
+bool cfg_meta_json_encode(struct config_data * cfg, const struct config_meta *meta, json_writer_t *jw);
 
 /* Helper makros for config eeprom/running handling */
 #define cfg_differ_str(cfg, field) \

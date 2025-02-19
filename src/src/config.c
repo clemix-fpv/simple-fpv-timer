@@ -6,6 +6,7 @@
 #include <time.h>
 #include "config.h"
 #include "esp_err.h"
+#include "lwip/ip4_addr.h"
 #include "nvs.h"
 #include "nvs_flash.h"
 #include "string.h"
@@ -30,6 +31,14 @@ static const char* TAG = "config";
 .type = UINT32,                                     \
 .size = sizeof(uint32_t),                           \
 .offset = offsetof(struct config_data, var_name)    \
+}
+
+#define config_meta_IPV4(var_name)         \
+{                                             \
+.name = #var_name,                          \
+.type = IPV4,                            \
+.size = sizeof(ip4_addr_t),                                  \
+.offset = offsetof(struct config_data, var_name)   \
 }
 
 #define config_meta_MACADDR(var_name)         \
@@ -82,7 +91,7 @@ const struct config_meta config_meta[] =
 
         config_meta_STRING(node_name, CFG_MAX_NAME_LEN),
         config_meta_UINT16(node_mode),
-        config_meta_UINT32(ctrl_ipv4),
+        config_meta_IPV4(ctrl_ipv4),
 
         config_meta_UINT16(game_mode),
 
@@ -233,6 +242,12 @@ esp_err_t cfg_set_param(struct config* cfg, const char *name, const char *value)
                 *(uint16_t*)((unsigned char*)&cfg->eeprom + cm->offset) = (uint16_t) atoi(value);
             } else if (cm->type == MACADDR) {
                 macaddr_from_str((unsigned char*)&cfg->eeprom + cm->offset, value);
+
+            } else if (cm->type == IPV4) {
+                ip4_addr_t tmp;
+                ip4addr_aton(value, &tmp);
+                *(ip4_addr_t*)((unsigned char*)&cfg->eeprom + cm->offset) = tmp;
+
             } else if (cm->type == STRING) {
                 size_t len = strlen(value);
                 if (len < cm->size) {
@@ -289,6 +304,13 @@ void cfg_dump(struct config * cfg)
             if (eeprom_value != running_value)
                 printf(" [!= %"PRId32"]", running_value);
             printf("\n");
+        } else if (cm->type == IPV4) {
+            ip4_addr_t eeprom_value = *(ip4_addr_t*)((unsigned char*)eeprom + cm->offset);
+            ip4_addr_t running_value = *(ip4_addr_t*)((unsigned char*)running + cm->offset);
+            printf("  %s: %s", cm->name, ip4addr_ntoa(&eeprom_value));
+            if (eeprom_value.addr != running_value.addr)
+                printf("  [!= %s]", ip4addr_ntoa(&running_value));
+            printf("\n");
 
         } else if (cm->type == MACADDR) {
             const unsigned char *d = (unsigned char*)eeprom + cm->offset;
@@ -316,23 +338,33 @@ void cfg_dump(struct config * cfg)
     }
 }
 
+bool cfg_meta_json_encode(struct config_data * cfg, const struct config_meta *cm, json_writer_t *jw)
+{
+    if (cm->type == UINT16) {
+        jw_kv_int(jw, cm->name, *(uint16_t*)((unsigned char*)cfg + cm->offset));
+    } else if (cm->type == UINT32) {
+        jw_kv_int32(jw, cm->name, *(uint32_t*)((unsigned char*)cfg + cm->offset));
+    } else if (cm->type == MACADDR) {
+        jw_kv_mac_in_dec(jw, cm->name, (char *) cfg + cm->offset);
+    } else if (cm->type == STRING) {
+        jw_kv_str(jw, cm->name, (char *)cfg + cm->offset);
+    } else if (cm->type == IPV4) {
+        static char ipbuf[16];
+        ip4_addr_t val = *(ip4_addr_t*)((unsigned char*)cfg + cm->offset);
+        jw_kv_str(jw, cm->name, ip4addr_ntoa_r(&val, ipbuf, sizeof(ipbuf)));
+    } else {
+        printf("%s: unkown type of attribute %s\n",__func__, cm->name);
+    }
+    return !jw->error;
+}
+
 bool cfg_json_encode(struct config_data * cfg, json_writer_t *jw)
 {
     const struct config_meta* cm = config_meta;
 
     jw_object(jw) {
         for(; cm->name != NULL; cm++) {
-            if (cm->type == UINT16) {
-                jw_kv_int(jw, cm->name, *(uint16_t*)((unsigned char*)cfg + cm->offset));
-            } else if (cm->type == UINT32) {
-                jw_kv_int32(jw, cm->name, *(uint32_t*)((unsigned char*)cfg + cm->offset));
-            } else if (cm->type == MACADDR) {
-                jw_kv_mac_in_dec(jw, cm->name, (char *) cfg + cm->offset);
-            } else if (cm->type == STRING) {
-                jw_kv_str(jw, cm->name, (char *)cfg + cm->offset);
-            } else {
-                printf("%s: unkown type of attribute %s\n",__func__, cm->name);
-            }
+            cfg_meta_json_encode(cfg, cm, jw);
         }
     }
     return !jw->error;
@@ -354,6 +386,11 @@ bool cfg_has_elrs_uid(const config_data_t *cfg)
             return true;
     }
     return false;
+}
+
+const struct config_meta* cfg_meta()
+{
+    return config_meta;
 }
 
 
