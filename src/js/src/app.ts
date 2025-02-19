@@ -1,4 +1,4 @@
-import { SimpleFpvTimer, Mode, Page, RssiEvent, ConfigGameMode } from "./SimpleFpvTimer.js"
+import { SimpleFpvTimer, Mode, Page, RssiEvent, ConfigGameMode, Config } from "./SimpleFpvTimer.js"
 import van from "./lib/van-1.5.2.js"
 import "./lib/bootstrap.bundle.js"
 import { RaceMode } from "./race/RaceMode.js"
@@ -8,50 +8,37 @@ import { CaptureTheFlagMode } from "./ctf/CaptureTheFlagMode.js"
 import { TestuPlot } from "./race/tabs/TestuPlot.js"
 import { SpectrumMode } from "./spectrum/SpectrumMode.js"
 
-const {button, div, pre} = van.tags
+const {button, div, pre,h3} = van.tags
 
-
-const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
-
-const Run = ({sleepMs}) => {
-    const steps = van.state(0);
-
-    (
-        async () => {
-        for (; steps.val < 40; ++steps.val) await sleep(sleepMs)
-    }
-    )(
-
-    )
-
-    return pre(() =>
-        `${" ".repeat(40 - steps.val)}🚐💨Hello VanJS!${"_".repeat(steps.val)}`)
-}
-
-const Hello = () => {
-    const dom = div()
-    return div(
-        dom,
-        button({onclick: () => van.add(dom, Run({sleepMs: 2000}))}, "Hello 🐌"),
-        button({onclick: () => van.add(dom, Run({sleepMs: 500}))}, "Hello 🐢"),
-        button({onclick: () => van.add(dom, Run({sleepMs: 100}))}, "Hello 🚶‍♂️"),
-        button({onclick: () => van.add(dom, Run({sleepMs: 10}))}, "Hello 🏎️"),
-        button({onclick: () => van.add(dom, Run({sleepMs: 2}))}, "Hello 🚀"),
-    )
-}
 
 class DebugPage extends Page {
     root: HTMLElement;
+    _cfg: HTMLElement;
+    _rssi: HTMLElement;
+    _ctf: HTMLElement;
+
+    get cfg(): HTMLElement {
+        if (!this._cfg) {
+            this._cfg = div("CONFIG:");
+        }
+        return this._cfg;
+    }
+
+    get rssi(): HTMLElement {
+        return this._rssi ? this._rssi : (this._rssi = div("RSSI"));
+    }
+    get ctf(): HTMLElement {
+        return this._ctf ? this._ctf : (this._ctf = div("ctf"));
+    }
 
     getDom(): HTMLElement {
         if (!this.root) {
-            this.root = div();
+            this.root = div(
+                this.cfg,
+                this.rssi,
+            );
         }
         return this.root;
-    }
-
-    onRssiUpdate(ev: RssiEvent) {
-        this.root.append(div(JSON.stringify(ev)));
     }
 
     constructor() {
@@ -59,8 +46,27 @@ class DebugPage extends Page {
         this.getDom();
 
         document.addEventListener("SFT_RSSI", (e: CustomEventInit<RssiEvent>) => {
-            this.onRssiUpdate(e.detail);
-        })
+            this.rssi.replaceChildren(
+                h3("Last RSSI message:" + Date.now()),
+                pre(JSON.stringify(e.detail, undefined, 2))
+            );
+        });
+
+        document.addEventListener("SFT_CONFIG_UPDATE", (e: CustomEventInit<Config>) => {
+            this.cfg.replaceChildren(
+                h3("Config"),
+                pre(e.detail.toJsonString(2))
+            );
+        });
+
+        document.addEventListener("SFT_CTF_UPDATE", (e: CustomEventInit<Ctf>) => {
+            this.ctf.replaceChildren(
+                h3("Last CTF message:" + Date.now()),
+                pre(e.detail.toJsonString(2))
+            );
+        });
+
+
     }
 }
 
