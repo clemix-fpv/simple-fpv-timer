@@ -97,7 +97,7 @@ void task_led_num_leds_cfg(task_led_t *task)
 
 void task_led_boot_start(task_led_t* task)
 {
-    static const millis_t DURATION=700;
+    static const millis_t DURATION=300;
 
     static const led_command_t cmds[] =  {
         {.color = COLOR_RED, .num = 100, .duration = DURATION, .before_fn = task_led_increase_num_leds},
