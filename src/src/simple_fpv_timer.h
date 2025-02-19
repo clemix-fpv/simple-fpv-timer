@@ -121,21 +121,21 @@ typedef struct lap_counter_s {
 
 
 typedef struct {
-    const char *name;
     millis_t enter;
     millis_t captured_ms;
 } ctf_team_t;
 
 typedef struct {
     char name[MAX_NAME_LEN];
-    ctf_team_t *current;
+    int current; /* index in teams, of the current holding team */
     ctf_team_t teams[MAX_PLAYER];
     ip4_addr_t ipv4;
-} ctf_flag_t;
+} ctf_node_t;
 
 typedef struct cft_s {
+    int num_teams;
     char team_names[MAX_PLAYER][MAX_NAME_LEN];
-    ctf_flag_t flags[MAX_PLAYER];
+    ctf_node_t nodes[MAX_PLAYER];
     esp_timer_handle_t timer;
 } ctf_t;
 
