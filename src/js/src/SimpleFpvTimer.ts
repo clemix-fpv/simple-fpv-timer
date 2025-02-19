@@ -69,6 +69,25 @@ export interface PlayersEvent {
     players: Player[];
 }
 
+
+
+export interface CtfNode {
+    name: string;
+    ipv4: string;
+    current: number;
+    captured_ms: number[];
+}
+
+export interface Ctf {
+    team_names: string[];
+    nodes: CtfNode[];
+}
+
+export interface CtfEvent {
+    type: string;
+    ctf: Ctf[];
+}
+
 export class RSSIConfig {
     name: string;
     freq: number;
@@ -149,7 +168,7 @@ export class Config {
         return this;
     }
 
-    public toJsonString() {
+    public toJsonString(ident?:number) {
         var obj = new Object();
         for (const [k, v] of Object.entries(this)) {
             if (k === "rssi") {
@@ -163,7 +182,7 @@ export class Config {
                 obj[k] = v;
             }
         }
-        return JSON.stringify(obj);
+        return JSON.stringify(obj, undefined, ident);
     }
 
     public async update(func: CallableFunction) {
@@ -324,6 +343,9 @@ export class SimpleFpvTimer {
 
                 } else if (wsEv.type === "players") {
                     this.dispatchPlayersUpdateEv((json as PlayersEvent).players);
+
+                } else  if (wsEv.type === "ctf") {
+                    this.dispatchCtfUpdateEv((json as CtfEvent).ctf);
                 }
 
             } catch {
@@ -412,6 +434,12 @@ export class SimpleFpvTimer {
         }
         document.dispatchEvent(
             new CustomEvent("SFT_PLAYERS_UPDATE", {detail: p2})
+        );
+    }
+
+    private dispatchCtfUpdateEv(ctf: Ctf[]) {
+        document.dispatchEvent(
+            new CustomEvent("SFT_CTF_UPDATE", {detail: ctf})
         );
     }
 
