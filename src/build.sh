@@ -4,6 +4,7 @@ me="./build.sh"
 pio=pio
 check_folders="src data_src"
 esp_idf_monitor=1
+port="/dev/ttyUSB0"
 
 if command -v distrobox-enter; then
     pio="distrobox-enter tumbleweed -- pio "
@@ -12,9 +13,10 @@ fi
 print_help()
 {
       echo "Usage:"
-      echo "  --force -f     force build"
-      echo "  --monitor      Only run monitor"
+      echo "  --force -f          Force build"
+      echo "  --monitor           Only run monitor"
       echo "  --[no-]idf-monitor  Use idf_monitor.py"
+      echo "  --port <device>     Full path to device (default: $port)"
       echo ""
 }
 
@@ -44,6 +46,11 @@ while [[ $# -gt 0 ]]; do
       print_help
       exit 0;
       ;;
+    --port)
+        shift;
+        port=$1
+        shift
+        ;;
     --idf-monitor)
       esp_idf_monitor=1
       shift
@@ -66,13 +73,13 @@ function monitor()
     if [ "$esp_idf_monitor" -eq 1 ]; then
         echo "IDF MONITOR"
         source ~/.platformio/penv/.espidf-5.3.0/bin/activate
-        python3 /home/clemix/.platformio/packages/framework-espidf/tools/idf_monitor.py \
-            --port /dev/ttyUSB0 \
+        python3 /home/clemix/.platformio/packages/framework-espidf@3.50300.0/tools/idf_monitor.py \
+            --port $port \
             --baud 115200 \
             --toolchain-prefix /home/clemix/.platformio/packages/toolchain-xtensa-esp32/bin/xtensa-esp32-elf- \
             .pio/build/esp32dev/firmware.elf
     else
-        $pio device monitor
+        $pio device monitor --monitor-port $port
     fi
 }
 
@@ -83,7 +90,7 @@ if [ $need_build -eq 1 ]; then
     #     . ~/.platformio/packages/framework-espidf/ &&
     #
     $pio run -t compiledb &&
-    $pio run -t upload &&
+    $pio run -t upload  --upload-port $port &&
     touch $me &&
     monitor
 else
