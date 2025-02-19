@@ -32,6 +32,7 @@ from uuid import uuid4
 import sys
 import re
 import random
+import numpy
 
 MAX_LAPS = 16
 NUMBER_OF_PLAYERS = 3
@@ -308,37 +309,53 @@ class WSHandler(WebsocketHandler):
         if need_update:
             self.sendPlayers(session)
 
+
+    def ctf_get_team_names(self):
+        teams = []
+        for o in ctx.config:
+            m = re.match(r'rssi\[(\d+)\].name', o)
+            if m:
+                if ctx.config['rssi[{}].freq'.format(m.group(1))] != 0:
+                    if len(ctx.config[o]) > 0:
+                        teams.append(ctx.config[o])
+        return teams
+
+    def ctf_init(self):
+        self.ctf_ctx = {}
+        teams = self.ctf_get_team_names();
+
+        self.ctf_ctx['time'] = time.time()
+        self.ctf_ctx['json'] = {
+            "team_names": teams,
+            "nodes": [
+                {
+                    "name": "NodeA",
+                    "ipv4": "0.0.0.0",
+                    "current": 1,
+                    "captured_ms": [ 0 for i in teams]
+                },
+                {
+                    "name": "NodeB",
+                    "ipv4": "192.168.2.22",
+                    "current": 1,
+                    "captured_ms": [ 0 for i in teams]
+                },
+                {
+                    "name": "NodeC",
+                    "ipv4": "192.168.2.23",
+                    "current": 1,
+                    "captured_ms": [ 0 for i in teams]
+                },
+            ]
+        }
+
     def random_ctf_update(self, session):
         if self.ctf_ctx is None:
-            self.ctf_ctx = {}
-# {"team_names":["BLUE","YELLOW"],"flags":[{"ipv4":"0.0.0.0","name":"","teams":[{"captured_ms":0},{"captured_ms":0}]}]}
-            teams = ["BLUE", "RED", "BLUE", "RED"]
-            teams = []
-            for o in ctx.config:
-                m = re.match(r'rssi\[(\d+)\].name', o)
-                if m:
-                    if ctx.config['rssi[{}].freq'.format(m.group(1))] != 0:
-                        if len(ctx.config[o]) > 0:
-                            teams.append(ctx.config[o])
-
-            self.ctf_ctx['time'] = time.time()
-            self.ctf_ctx['json'] = {
-                "team_names": teams,
-                "nodes": [
-                    {
-                        "name": "NodeA",
-                        "ipv4": "0.0.0.0",
-                        "current": 1,
-                        "captured_ms": [ 0 for i in teams]
-                    },
-                    {
-                        "name": "NodeB",
-                        "ipv4": "192.168.2.22",
-                        "current": 65,
-                        "captured_ms": [ 0 for i in teams]
-                    },
-                ]
-            }
+            self.ctf_init()
+        elif (not (
+                numpy.array(self.ctf_ctx['json']['team_names']) ==
+                numpy.array(self.ctf_get_team_names())).all()):
+            self.ctf_init()
 
         elapsed = time.time() - self.ctf_ctx['time']
 

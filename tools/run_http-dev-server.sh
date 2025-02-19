@@ -27,6 +27,7 @@ fi
 
 source .venv/bin/activate
 pip install simple-http-server
+pip install numpy
 
 httpd_start()
 {
