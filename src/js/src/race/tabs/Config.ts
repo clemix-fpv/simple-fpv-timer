@@ -1,7 +1,7 @@
 import van from "../../lib/van-1.5.2.js"
 import { Notifications } from "../../Notifications.js";
 import { Config, ConfigGameMode, ConfigNodeMode, ConfigWIFIMode, Lap, Page, Player } from "../../SimpleFpvTimer.js";
-import { $, enumToMap, format_ms, hide, Images, show, suffix } from "../../utils.js";
+import { $, enumToMap, format_ms, hide, Images, numberToColor, show, suffix } from "../../utils.js";
 
 const { h3,label, form, select,input,img,fieldset, option, button, div, h5, pre, ul, li, span, a, table, thead, tbody, th, tr,td} = van.tags
 
@@ -172,18 +172,34 @@ export class ConfigElement extends EventTarget {
     }
 }
 
+export class ConfigPasswordElement extends ConfigElement {
+    public buildHtmlElement() {
+        return div({class: "form-group"},
+            fieldset(
+                label( {class: "form-label", for: this.inputId()},
+                    this.label,
+                    (this.help ?
+                        a({style: "margin: 0px 5px",
+                            "data-toggle": "tooltip",
+                            "data-trigger": "click",
+                            title: this.help}, img({src: Images.QUESTION_SVG}))
+                        : span())
+                ),
+                input({class: "form-control", name: this.fieldname,
+                    id: this.inputId(), type: "password", value: this.value})
+            )
+        );
+    }
+}
+
+
 export class ConfigColorElement extends ConfigElement {
     public buildHtmlElement() {
         var value = "#000000";
         var v = this.value || 0;
-        if (!Number.isNaN(v)) {
-            v = v as number;
-            var r = (v & 0xff0000) >> 16;
-            var g = (v & 0x00ff00) >> 8;
-            var b = (v & 0x0000ff);
-            value = "#" + r.toString(16).padStart(2, '0') +
-                g.toString(16).padStart(2,'0') + b.toString(16).padStart(2,'0');
-        }
+
+        if (!Number.isNaN(v))
+            value = numberToColor(v as number);
 
         return div({class: "form-group"},
             fieldset(
@@ -660,7 +676,7 @@ export class WifiConfigGroup extends ConfigGroup {
         this.addElement(new ConfigSelectElement(cfg, visible, "wifi_mode", "WIFI Mode",
             enumToMap(ConfigWIFIMode)));
         this.addElement(new ConfigElement(cfg, visible, "ssid", "SSID"));
-        this.addElement(new ConfigElement(cfg, visible, "passphrase", "Passphrase"));
+        this.addElement(new ConfigPasswordElement(cfg, visible, "passphrase", "Passphrase"));
     }
 }
 
