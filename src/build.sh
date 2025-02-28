@@ -5,6 +5,8 @@ pio=pio
 check_folders="src data_src"
 esp_idf_monitor=1
 port="/dev/ttyUSB0"
+idf_monitor="/home/clemix/.platformio/packages/framework-espidf/tools/idf_monitor.py"
+toolchain_prefix="/home/clemix/.platformio/packages/toolchain-xtensa-esp32/bin/xtensa-esp32-elf-"
 
 if command -v distrobox-enter; then
     pio="distrobox-enter tumbleweed -- pio "
@@ -73,10 +75,10 @@ function monitor()
     if [ "$esp_idf_monitor" -eq 1 ]; then
         echo "IDF MONITOR"
         source ~/.platformio/penv/.espidf-5.3.0/bin/activate
-        python3 /home/clemix/.platformio/packages/framework-espidf@3.50300.0/tools/idf_monitor.py \
+        python3 $idf_monitor \
             --port $port \
             --baud 115200 \
-            --toolchain-prefix /home/clemix/.platformio/packages/toolchain-xtensa-esp32/bin/xtensa-esp32-elf- \
+            --toolchain-prefix $toolchain_prefix \
             .pio/build/esp32dev/firmware.elf
     else
         $pio device monitor --monitor-port $port

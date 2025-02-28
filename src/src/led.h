@@ -20,6 +20,8 @@ typedef uint32_t color_t;
 #define COLOR_RED   COLOR(255, 0, 0)
 #define COLOR_GREEN COLOR(0, 255, 0)
 #define COLOR_BLUE  COLOR(0, 0, 255)
+#define COLOR_WHITE COLOR(255, 255, 255)
+#define COLOR_BLACK COLOR(0, 0, 0)
 
 #define COLOR_GET_RED(color)    ((color >> 16) & 0xff)
 #define COLOR_GET_GREEN(color)  ((color >> 8) & 0xff)

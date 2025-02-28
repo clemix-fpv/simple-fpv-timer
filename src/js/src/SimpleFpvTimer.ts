@@ -41,6 +41,15 @@ export class Mode {
         root.replaceChildren(page.getDom());
     }
 
+    public getPageByName(name: string) {
+        for(const p of this.pages) {
+            if (p.name == name){
+                return p;
+            }
+        }
+        return null;
+    }
+
     constructor(name: string) {
         this.name = name;
         this.pages = new Array<Page>();
@@ -81,6 +90,7 @@ export interface CtfNode {
 export interface Ctf {
     team_names: string[];
     nodes: CtfNode[];
+    time_left_ms: number;
 }
 
 export interface CtfEvent {

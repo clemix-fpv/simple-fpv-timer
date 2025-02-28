@@ -92,6 +92,7 @@ const struct config_meta config_meta[] =
         config_meta_STRING(node_name, CFG_MAX_NAME_LEN),
         config_meta_UINT16(node_mode),
         config_meta_IPV4(ctrl_ipv4),
+        config_meta_UINT16(ctrl_port),
 
         config_meta_UINT16(game_mode),
 
@@ -163,6 +164,7 @@ static void cfg_data_init(struct config_data *eeprom)
 
     eeprom->game_mode = CFG_GAME_MODE_RACE;
     eeprom->led_num = 25;
+    eeprom->ctrl_port = 80;
 }
 
 void cfg_generate_random_ssid(char *buf, size_t len)

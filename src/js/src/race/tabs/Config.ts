@@ -6,7 +6,7 @@ import { $, enumToMap, format_ms, hide, Images, numberToColor, show, suffix } fr
 const { h3,label, form, select,input,img,fieldset, option, button, div, h5, pre, ul, li, span, a, table, thead, tbody, th, tr,td} = van.tags
 
 
-class VisibleElements {
+export class VisibleElements {
     protected hidden: Array<string>;
     protected hidden_groups: Array<string>;
     protected rssi_min: number;
@@ -44,10 +44,28 @@ class VisibleElements {
     }
 
     constructor(
-        hidden: Array<string>,
-        hidden_groups: Array<string>,
+        cfg: Config,
+        hidden?: Array<string>,
+        hidden_groups?: Array<string>,
         rssi_min?:number,
         rssi_max?: number) {
+
+        this.init(cfg, hidden, hidden_groups, rssi_min, rssi_max);
+    }
+
+    init(
+        _cfg: Config,
+        hidden?: Array<string>,
+        hidden_groups?: Array<string>,
+        rssi_min?:number,
+        rssi_max?: number) {
+
+        if (!hidden) {
+            hidden = new Array<string>();
+        }
+
+        if (!hidden_groups)
+            hidden_groups = new Array<string>();
 
         this.hidden = hidden;
         this.hidden_groups = hidden_groups;
@@ -56,23 +74,33 @@ class VisibleElements {
     }
 }
 
-class ElementsRace extends VisibleElements {
+export class ElementsRace extends VisibleElements {
 
-    constructor(cfg: Config) {
-        super(new Array<string>(), new Array<string>(), 1, 1);
+    init(
+        cfg: Config,
+        hidden?: Array<string>,
+        hidden_groups?: Array<string>,
+        _rssi_min?:number,
+        _rssi_max?: number) {
+        super.init(cfg, hidden, hidden_groups, 1, 1);
 
         this.rssi_label = "Player Settings";
-        this.hidden.push('node_name');
         this.hidden.push('rssi[0].led_color');
-        if (cfg.node_mode == ConfigNodeMode.CONTROLLER)
+        if (cfg.node_mode == ConfigNodeMode.CONTROLLER) {
             this.hidden.push('ctrl_ipv4');
+            this.hidden.push('node_name');
+        }
     }
 }
 
 class ElementsCTF extends VisibleElements {
-
-    constructor(cfg: Config) {
-        super(new Array<string>(), new Array<string>());
+    init(
+        cfg: Config,
+        hidden?: Array<string>,
+        hidden_groups?: Array<string>,
+        rssi_min?:number,
+        rssi_max?: number) {
+        super.init(cfg, hidden, hidden_groups, rssi_min, rssi_max);
 
         this.rssi_label = "CTF Teams";
         this.hidden_groups.push(ElrsConfigGroup.name)
@@ -85,9 +113,13 @@ class ElementsCTF extends VisibleElements {
 }
 
 class ElementsSpectrum extends VisibleElements {
-
-    constructor(_: Config) {
-        super(new Array<string>(), new Array<string>());
+    init(
+        cfg: Config,
+        hidden?: Array<string>,
+        hidden_groups?: Array<string>,
+        rssi_min?:number,
+        rssi_max?: number) {
+        super.init(cfg, hidden, hidden_groups, rssi_min, rssi_max);
         this.hidden_groups.push(ElrsConfigGroup.name)
 
         this.hidden.push('ctrl_ipv4');
@@ -105,11 +137,11 @@ export class ConfigElement extends EventTarget {
     cfg: Config;
     visible: boolean;
 
-    constructor(cfg: Config, visible: VisibleElements, fieldname: string, label: string, help?: string) {
+    constructor(cfg: Config, visible: VisibleElements, fieldname: string, label: string, help?: string, value?: string) {
         super();
         this.visible = visible.fieldIsVisible(fieldname);
         this.fieldname = fieldname;
-        this.value = cfg.getValue(fieldname);
+        this.value = value ? value : cfg.getValue(fieldname);
         this.label = label;
         if (help)
             this.help = help;
@@ -332,6 +364,40 @@ class RSSIConfigElement extends ConfigElement {
     }
 }
 
+class IPSocketElement extends ConfigElement {
+    port: string;
+    ip: string;
+
+    constructor(cfg: Config, visible: VisibleElements, fieldname_ip: string, fieldname_port: string, label: string, help?: string) {
+        super(cfg,
+            visible,
+            fieldname_ip,
+            label,
+            help,
+            cfg.getValue(fieldname_ip) + ":" + cfg.getValue(fieldname_port));
+        this.port = fieldname_port;
+        this.ip = fieldname_ip;
+    }
+
+    public getKeyValue(obj_r?: Object): Object{
+        var obj = new Object();
+        var v = this.getValue();
+        if (v) {
+            var splits = v.split(":");
+            obj[this.ip] = splits[0];
+            if (splits.length > 1)
+                obj[this.port] = splits[1];
+            if (obj_r)
+                obj_r[this.ip] = splits[0];
+                if (splits.length > 1)
+                    obj[this.port] = splits[1];
+            return obj;
+        }
+        return obj;
+    }
+
+}
+
 export class GeneralConfigGroup extends ConfigGroup {
     constructor(cfg: Config, visible: VisibleElements) {
         super(cfg, visible, "General settings");
@@ -347,7 +413,7 @@ export class GeneralConfigGroup extends ConfigGroup {
             enumToMap(ConfigNodeMode),
             "Specify if this is a controller device or a client which connects to a controller."
         );
-        var ctrl_ipv4 = new ConfigElement(cfg, visible, "ctrl_ipv4", "Controller IPv4",
+        var ctrl_ipv4 = new IPSocketElement(cfg, visible, "ctrl_ipv4", "ctrl_port", "Controller IPv4",
             "The controller IPv4 address to connect to. If value is 0.0.0.0, GW is used.");
 
         this.addElement(node_mode);
@@ -683,6 +749,7 @@ export class WifiConfigGroup extends ConfigGroup {
 export class ConfigForm {
     groups: Array<ConfigGroup>;
     root: HTMLElement;
+    visible: VisibleElements;
 
     private findConfigElementById(id: string): ConfigElement {
         for (const group of this.groups) {
@@ -756,11 +823,15 @@ export class ConfigForm {
 
     updateForm(cfg: Config) {
         this.groups = new Array<ConfigGroup>();
-        var visible = this.visibleByGameMode(cfg);
-        this.groups.push(new GeneralConfigGroup(cfg, visible));
-        this.groups.push(new TabedRssiConfigGroup(cfg, visible));
-        this.groups.push(new ElrsConfigGroup(cfg, visible));
-        this.groups.push(new WifiConfigGroup(cfg, visible));
+        if (!this.visible) {
+            this.visible = this.visibleByGameMode(cfg);
+        } else {
+            this.visible.init(cfg);
+        }
+        this.groups.push(new GeneralConfigGroup(cfg, this.visible));
+        this.groups.push(new TabedRssiConfigGroup(cfg, this.visible));
+        this.groups.push(new ElrsConfigGroup(cfg, this.visible));
+        this.groups.push(new WifiConfigGroup(cfg, this.visible));
 
         var game_mode = this.findConfigElementById("game_mode");
         if (game_mode) {
@@ -781,8 +852,10 @@ export class ConfigForm {
         this.updateRoot();
     }
 
-    constructor(cfg: Config) {
+    constructor(cfg: Config, visible?: VisibleElements) {
         this.root = div();
+        if (visible)
+            this.visible = visible;
         this.updateForm(cfg);
     }
 }

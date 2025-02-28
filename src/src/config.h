@@ -8,7 +8,7 @@
 #include "json.h"
 
 #define CFG_DEFAULT_OSD_FORMAT      "%2L: %5.2ts(%6.2ds)"
-#define CFG_VERSION                 "v007"
+#define CFG_VERSION                 "v009"
 #define CFG_NVS_NAMESPACE           "config"
 
 #define CFG_WIFI_MODE_AP            0
@@ -66,6 +66,7 @@ struct config_data {
                                            default: use wifi where AP == controller */
     uint32_t ctrl_ipv4;                 /* IPv4 address of the controller,
                                            if not given GW is used */
+    uint16_t ctrl_port;
     uint16_t game_mode;
 
     uint16_t led_num;

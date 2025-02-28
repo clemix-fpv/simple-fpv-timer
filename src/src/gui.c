@@ -11,6 +11,7 @@
 #include "esp_http_client.h"
 #include "esp_netif.h"
 #include "esp_netif_types.h"
+#include "jsmn.h"
 #include "lwip/ip_addr.h"
 #include "lwip/sockets.h"
 #include "static_files.h"
@@ -21,12 +22,7 @@
 #include "gui.h"
 
 static const char * TAG = "http";
-static char json_buffer[1024*4];
-static json_t json_parser;
-#define JSMN_TOKENS_MAX 512
-static jsmntok_t jsmn_tokens[JSMN_TOKENS_MAX];
-static char tmp_buf64[64];
-static char tmp2_buf64[64];
+static const char * OUT_OF_MEMORY = "Out of memory";
 
 typedef struct {
     bool will_rssi_update;
@@ -35,27 +31,6 @@ typedef struct {
 void session_ctx_free(void *s)
 {
     free(s);
-}
-
-/* This function is NOT thread safe and use the
- * static json_buffer to parse.
- * The parameter length give the max string length
- * in json_buffer. If < 0 is given, then strlen()
- * will be used.
- *
- * USE THIS FUNCTION WITH CARE!!!!!
- * You can only parse one JSON object at a time!
- */
-static json_t* json_parse_static_buffer(int length)
-{
-    j_init(&json_parser, jsmn_tokens, JSMN_TOKENS_MAX);
-
-    json_buffer[sizeof(json_buffer) -1 ] = 0;
-    if (length < 0) {
-        length = strlen(json_buffer);
-    }
-
-    return j_parse(&json_parser, json_buffer, length);
 }
 
 static esp_err_t get_root_handler(httpd_req_t *req)
@@ -116,6 +91,7 @@ static esp_err_t get_static_handler(httpd_req_t *req)
 static esp_err_t ws_rssi_handler(httpd_req_t *req)
 {
     ESP_LOGI(TAG, "ENTER: %s", __func__);
+    static char ws_buffer[512];
 
     if (! req->sess_ctx) {
         req->sess_ctx = malloc(sizeof(session_ctx_t));
@@ -138,17 +114,13 @@ static esp_err_t ws_rssi_handler(httpd_req_t *req)
     httpd_ws_frame_t ws_pkt;
     memset(&ws_pkt, 0, sizeof(httpd_ws_frame_t));
     ws_pkt.type = HTTPD_WS_TYPE_TEXT;
-    ws_pkt.payload = (uint8_t*) json_buffer;
-    if (httpd_ws_recv_frame(req, &ws_pkt, sizeof(json_buffer)) != ESP_OK) {
+    ws_pkt.payload = (uint8_t*) ws_buffer;
+    if (httpd_ws_recv_frame(req, &ws_pkt, sizeof(ws_buffer)) != ESP_OK) {
         ESP_LOGI(TAG, "FAILED to recv ws pkt!");
         return ESP_OK;
     }
 
-    ESP_LOGI(TAG, "Received ws pkt length:%d %.*s", ws_pkt.len, ws_pkt.len, json_buffer);
-    json_t *j = json_parse_static_buffer(ws_pkt.len);
-    if (j_find_str(j, "type", tmp_buf64, sizeof(tmp_buf64)) ){
-        ESP_LOGI(TAG, "Received ws pkt types %s", tmp_buf64);
-    }
+    ESP_LOGI(TAG, "Received ws pkt length:%d %.*s", ws_pkt.len, ws_pkt.len, ws_buffer);
     return ESP_OK;
 }
 
@@ -172,21 +144,24 @@ static void request_send_error(httpd_req_t *req, const char *msg, ...)
     int len;
     json_writer_t jw;
     va_list args;
+    static char err_buf[64];
+    static char json_buf[128];
 
     va_start (args, msg);
-    len = vsnprintf (json_buffer, sizeof(json_buffer) - 64, msg, args);
+    len = vsnprintf (err_buf, sizeof(err_buf), msg, args);
     va_end (args);
 
-    httpd_resp_set_status(req, "400 Bad Request");
-
-    if (len < sizeof(json_buffer) - 64) {
-        jw_init(&jw , json_buffer + len + 1, sizeof(json_buffer) - 1 - len);
+    if (len < sizeof(err_buf) && len >= 0) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        jw_init(&jw , json_buf, sizeof(json_buf));
         jw_object(&jw){
             jw_kv_str(&jw, "status", "failed");
-            jw_kv_str(&jw, "msg", json_buffer);
+            jw_kv_str(&jw, "msg", err_buf);
         }
         request_send_json(req, jw.buf, jw.wptr - jw.buf);
+
     } else {
+        httpd_resp_set_status(req, "500 Internal Server Error");
         request_send_json(req, "{\"status\":\"failed\"}", 19);
     }
 }
@@ -194,20 +169,33 @@ static void request_send_error(httpd_req_t *req, const char *msg, ...)
 static esp_err_t api_v1_get_handler(httpd_req_t *req)
 {
     ctx_t *ctx = (ctx_t*) req->user_ctx;
-    static json_writer_t jwmem, *jw;
-    jw = &jwmem;
-    jw_init(jw, json_buffer, sizeof(json_buffer));
+    static const int buf_sz = 1024 * 4;
+    json_writer_t jw;
+    char *buf = NULL;
+
+    if (!(buf = malloc(buf_sz))){
+        request_send_error(req, OUT_OF_MEMORY);
+        return ESP_ERR_NO_MEM;
+    }
+
+    jw_init(&jw, buf, buf_sz);
 
     ESP_LOGI(TAG, "%s URI: %s", __func__, req->uri);
     if (strcmp(req->uri, "/api/v1/settings") == 0) {
-        if (sft_encode_settings(ctx, jw))
-            request_send_json(req, json_buffer, strlen(json_buffer));
+        if (sft_encode_settings(ctx, &jw))
+            request_send_json(req, jw.buf, strlen(jw.buf));
         else
-            request_send_error(req, "JSON buffer to small - needed:%d", jw->needed_space);
+            request_send_error(req, "JSON buffer to small - needed:%d", jw.needed_space);
+
+    } else if (strcmp(req->uri, "/api/v1/ctf/stop") == 0) {
+        sft_ctf_stop(ctx);
+        request_send_ok(req);
+
     } else {
         request_send_error(req, "Uri %s not found", req->uri);
     }
 
+    free(buf);
     return ESP_OK;
 }
 
@@ -243,36 +231,52 @@ static inline bool streq(const char *str1, const char *str2)
     return strcmp(str1, str2) == 0;
 }
 
-static esp_err_t api_v1_post_osd(httpd_req_t *req, ctx_t *ctx, const char *uri_tok,
-                                 char *post_data, int len)
+static esp_err_t api_v1_post_osd(httpd_req_t *req, ctx_t *ctx, const char *uri_tok, json_t *jr)
 {
     osd_t *osd = &ctx->osd;
-    static json_t jr_obj;
-    json_t *jr = &jr_obj;
-    static json_writer_t jw;
+    json_writer_t jw;
+    char *tmp_buf64 = NULL;
+    char *tmp2_buf64 = NULL;
+    static const int jsmn_tokens_num = 512;
+
+    jsmntok_t *tokens;
     int x, y;
 
-    j_init(jr, jsmn_tokens, JSMN_TOKENS_MAX);
+
+    if (!(tokens = malloc(jsmn_tokens_num))) {
+        request_send_error(req, OUT_OF_MEMORY);
+        return ESP_ERR_NO_MEM;
+    }
+
+    if (!(tmp_buf64 = malloc(64))) {
+        free(tokens);
+        request_send_error(req, OUT_OF_MEMORY);
+        return ESP_ERR_NO_MEM;
+    }
+
+    if (!(tmp2_buf64 = malloc(64))) {
+        free(tokens);
+        free(tmp_buf64);
+        request_send_error(req, OUT_OF_MEMORY);
+        return ESP_ERR_NO_MEM;
+    }
+
+    j_init(jr, tokens, jsmn_tokens_num);
 
     if (streq(uri_tok, "display_text") || streq(uri_tok, "set_text")) {
 
-        ESP_LOGI(TAG, "PARSE json(%d): %.*s", len, len, post_data);
-        if(j_parse(jr, post_data, len)) {
-            if (j_find_str(jr, "text", tmp_buf64, sizeof(tmp_buf64))
-                && j_find_int(jr, "x", &x)
-                && j_find_int(jr, "y", &y)){
+        if (j_find_str(jr, "text", tmp_buf64, sizeof(tmp_buf64))
+            && j_find_int(jr, "x", &x)
+            && j_find_int(jr, "y", &y)){
 
-                if (streq(uri_tok, "display_text"))
-                    osd_display_text(osd, x, y, tmp_buf64);
-                else
-                    osd_send_text(osd, x, y, tmp_buf64);
+            if (streq(uri_tok, "display_text"))
+                osd_display_text(osd, x, y, tmp_buf64);
+            else
+                osd_send_text(osd, x, y, tmp_buf64);
 
-                request_send_ok(req);
-            } else {
-                request_send_error(req, "Missing mandatory json field");
-            }
+            request_send_ok(req);
         } else {
-            request_send_error(req, "Failed to parse json");
+            request_send_error(req, "Missing mandatory json field");
         }
 
     } else if (streq(uri_tok, "clear")){
@@ -284,90 +288,79 @@ static esp_err_t api_v1_post_osd(httpd_req_t *req, ctx_t *ctx, const char *uri_t
         request_send_ok(req);
 
     } else if (streq(uri_tok, "test_format")) {
-        if(j_parse(jr, post_data, len)) {
-            if (j_find_str(jr, "format", tmp_buf64, sizeof(tmp_buf64))) {
-                if (osd_eval_format(osd, tmp_buf64, 23, 1337,666, tmp2_buf64, sizeof(tmp2_buf64))) {
-                    jw_init(&jw, json_buffer, sizeof(json_buffer));
-                    jw_object(&jw){
-                        jw_kv_str(&jw, "status", "ok");
-                        jw_kv_str(&jw, "msg", tmp2_buf64);
-                    }
-                    httpd_resp_set_status(req, "200 OK");
-                    request_send_json(req, json_buffer, strlen(json_buffer));
-                } else {
-                    request_send_error(req, "Invalid OSD message format");
+        if (j_find_str(jr, "format", tmp_buf64, sizeof(tmp_buf64))) {
+            if (osd_eval_format(osd, tmp_buf64, 23, 1337,666, tmp2_buf64, sizeof(tmp2_buf64))) {
+                jw_init(&jw, tmp_buf64, 64);
+                jw_object(&jw){
+                    jw_kv_str(&jw, "status", "ok");
+                    jw_kv_str(&jw, "msg", tmp2_buf64);
                 }
+                httpd_resp_set_status(req, "200 OK");
+                if (!jw.error)
+                    request_send_json(req, jw.buf, strlen(jw.buf));
+                else
+                    request_send_error(req, "Failed to build JSON");
             } else {
-                request_send_error(req, "Missing mandatory json field");
+                request_send_error(req, "Invalid OSD message format");
             }
         } else {
-            request_send_error(req, "Failed to parse json");
+            request_send_error(req, "Missing mandatory json field");
         }
     }
 
+    free(tokens);
+    free(tmp_buf64);
+    free(tmp2_buf64);
     return  ESP_OK;
 }
 
-static esp_err_t api_v1_post_time_sync(httpd_req_t *req, ctx_t *ctx,
-                                 char *post_data, int len)
+static esp_err_t api_v1_post_time_sync(httpd_req_t *req, ctx_t *ctx, json_t *jr)
 {
-    static json_t jr_obj, *jr;
-    static json_writer_t jw_obj, *jw;
-
-    /* the given post_data, is a pointer into static json_buffer, we will
-     * write our responds after it, as we need the message while writing
-     * the response. */
-    char *wbuf =  json_buffer + len + 1;
-    int wbuf_len = sizeof(json_buffer) - len - 1;
-
     json_t client;
     json_t server;
     uint64_t val;
+    json_writer_t jw;
+    static const int buf_w_sz = 512;
+    char *buf_w;
 
-    jr = &jr_obj;
-    jw = &jw_obj;
-
-    if (wbuf_len < 0)
-        return ESP_ERR_INVALID_SIZE;
-
-    j_init(jr, jsmn_tokens, sizeof(jsmn_tokens) / sizeof(jsmntok_t));
-
-    if (j_parse(jr, post_data, len)) {
-        j_find(jr, "server", &server);
-        j_find(jr, "client", &client);
-
-        jw_init(jw, wbuf, wbuf_len);
-        jw_object(jw) {
-            jw_kv(jw, "server"){
-                jw_array(jw){
-                    json_t e = {0};
-                    while(j_next(&server, &e)) {
-                        if (j_get_uint64(&e, &val))
-                            jw_uint64(jw, val);
-                    }
-                    jw_uint64(jw, get_millis());
-                }
-            }
-            jw_kv(jw, "client"){
-                jw_array(jw){
-                    json_t e = {0};
-                    while(j_next(&client, &e)) {
-                        if (j_get_uint64(&e, &val))
-                            jw_uint64(jw, val);
-                    }
-                }
-            }
-        }
-        if (jw->error) {
-            request_send_error(req, "Failed to write json");
-        } else {
-            httpd_resp_set_status(req, "200 OK");
-            request_send_json(req, jw->buf, jw->wptr - jw->buf);
-        }
-    } else {
-            request_send_error(req, "Failed to parse json");
+    if (!(buf_w = malloc(buf_w_sz))) {
+        request_send_error(req, OUT_OF_MEMORY);
+        return ESP_ERR_NO_MEM;
     }
 
+    j_find(jr, "server", &server);
+    j_find(jr, "client", &client);
+
+    jw_init(&jw, buf_w, buf_w_sz);
+    jw_object(&jw) {
+        jw_kv(&jw, "server"){
+            jw_array(&jw){
+                json_t e = {0};
+                while(j_next(&server, &e)) {
+                    if (j_get_uint64(&e, &val))
+                        jw_uint64(&jw, val);
+                }
+                jw_uint64(&jw, get_millis());
+            }
+        }
+        jw_kv(&jw, "client"){
+            jw_array(&jw){
+                json_t e = {0};
+                while(j_next(&client, &e)) {
+                    if (j_get_uint64(&e, &val))
+                        jw_uint64(&jw, val);
+                }
+            }
+        }
+    }
+    if (jw.error) {
+        request_send_error(req, "Failed to write json");
+    } else {
+        httpd_resp_set_status(req, "200 OK");
+        request_send_json(req, jw.buf, jw.wptr - jw.buf);
+    }
+
+    free(buf_w);
     return ESP_OK;
 }
 
@@ -376,58 +369,71 @@ static esp_err_t api_v1_post_handler(httpd_req_t *req)
 {
     ctx_t *ctx = (ctx_t*) req->user_ctx;
     lap_counter_t *lc = &ctx->lc;
-    static json_writer_t jwmem, *jw;
-    static char key[32];
-    static char value[32];
-    static json_t jr_obj;
-    json_t *jr = &jr_obj;
+    static const int tmp_str_sz = 32;
+    char *key;
+    char *value;
+    char *json_buf;
+    static const int jsmn_tokens_sz = 512;
+    jsmntok_t *jsmn_tokens;
+    json_t jr;
+    esp_err_t err = ESP_OK;
     const char *tok;
 
-    json_buffer[0] = '\0';
-    j_init(jr, jsmn_tokens, JSMN_TOKENS_MAX);
-
-    jw = &jwmem;
-    jw_init(jw, json_buffer, sizeof(json_buffer));
-
-    if (req->content_len > sizeof(json_buffer)){
-        request_send_error(req, "413 Payload Too Large (%d)", req->content_len);
+    int json_buffer_sz = (req->content_len > 1024) ? req->content_len : 1024;
+    json_buffer_sz = (((json_buffer_sz + 31) / 32) * 32);
+    int sz = tmp_str_sz * 2 + jsmn_tokens_sz * sizeof(jsmntok_t) + req->content_len;
+    if (!(json_buf = malloc(sz))){
+        request_send_error(req, "413 Payload Too Large (%d)", sz);
         return ESP_OK;
     }
 
-    int len = httpd_req_recv(req, json_buffer, sizeof(json_buffer));
+    key = &json_buf[json_buffer_sz];
+    value = &json_buf[json_buffer_sz + tmp_str_sz];
+    jsmn_tokens = (jsmntok_t*) &json_buf[json_buffer_sz + tmp_str_sz * 2];
 
-    ESP_LOGI(TAG, "%s:%d URI: %s data(%d): %.*s", __func__, __LINE__, req->uri, len, len, json_buffer);
-    if (strcmp(req->uri, "/api/v1/settings") == 0) {
-        ESP_LOGE(TAG, "%s:%d", __func__, __LINE__);
-        if(j_parse(jr, json_buffer, len)) {
-        ESP_LOGE(TAG, "%s:%d", __func__, __LINE__);
-            json_t e = {0};
-            while(j_next(jr, &e)) {
-        ESP_LOGE(TAG, "%s:%d", __func__, __LINE__);
-                if (j_get_kv(&e, key, sizeof(key), value, sizeof(value))) {
-        ESP_LOGE(TAG, "%s:%d", __func__, __LINE__);
-                    if (cfg_set_param(&ctx->cfg, key, value) != ESP_OK) {
-                        jw_object(jw) {
-                            jw_kv_str(jw, "status", "error");
-                            jw_kv(jw, "msg") {
-                                jw_format(jw, "\"Invalid key/value %s=%s\"", key, value);
-                            }
-                        }
-                    }
-                }
-            }
-            cfg_verify(&ctx->cfg);
-            if (cfg_save(&ctx->cfg) == ESP_OK) {
-                if (sft_update_settings(ctx))
-                    request_send_ok(req);
-                else {
-                    request_send_error(req, "Failed to apply all settings - reboot");
-                }
-            } else  {
-                request_send_error(req, "Failed to write config to eeprom");
-            }
-        }  else {
+
+    int len = httpd_req_recv(req, json_buf, json_buffer_sz);
+    if (len > json_buffer_sz) {
+        request_send_error(req, "413 Payload Too Large (%d)", len);
+        return ESP_OK;
+    } else if (len < 0) {
+        request_send_error(req, "Failed to read payload");
+        return ESP_OK;
+    }
+
+    ESP_LOGI(TAG, "%s:%d URI: %s data(%d): %.*s", __func__, __LINE__, req->uri, len, len, json_buf);
+
+    j_init(&jr, jsmn_tokens, jsmn_tokens_sz);
+    if (len > 0) {
+        if(!j_parse(&jr, json_buf, len)) {
+            ESP_LOGE(TAG, "Failed to parse json (len:%d)", len);
             request_send_error(req, "Failed to parse json");
+            err = ESP_ERR_INVALID_ARG;
+            goto out;
+        }
+    } else {
+        j_parse(&jr, "{}", 2);
+    }
+
+    if (strcmp(req->uri, "/api/v1/settings") == 0) {
+        json_t e = {0};
+        while(j_next(&jr, &e)) {
+            if (j_get_kv(&e, key, tmp_str_sz, value, tmp_str_sz)) {
+                if (cfg_set_param(&ctx->cfg, key, value) != ESP_OK) {
+                    request_send_error(req,"Invalid key/value %s=%s", key, value);
+                    goto out;
+                }
+            }
+        }
+        cfg_verify(&ctx->cfg);
+        if (cfg_save(&ctx->cfg) == ESP_OK) {
+            if (sft_update_settings(ctx))
+                request_send_ok(req);
+            else {
+                request_send_error(req, "Failed to apply all settings - reboot");
+            }
+        } else  {
+            request_send_error(req, "Failed to write config to eeprom");
         }
 
     } else if (strcmp(req->uri, "/api/v1/start_calibration") == 0) {
@@ -436,19 +442,18 @@ static esp_err_t api_v1_post_handler(httpd_req_t *req)
 
     } else if (strcmp(req->uri, "/api/v1/clear_laps") == 0) {
         struct player_s *player;
+        millis_t offset;
+
+        if (!j_find_uint64(&jr, "offset", &offset))
+            offset = 30000;
 
         for (int i=0; i < MAX_PLAYER; i++) {
             player = &lc->players[i];
             memset(player->laps, 0, sizeof(player->laps));
             player->next_idx = 0;
-
-            if (player->ip4.addr != 0 && strlen(player->name) > 0){
-                // TODO
-                //                    http_send_api_data_to("clear_laps", "", player->ipaddr);
-            }
         }
 
-        sft_event_start_race_t ev = {.offset = 30000 };
+        sft_event_start_race_t ev = {.offset = offset };
         ESP_ERROR_CHECK(
             esp_event_post(SFT_EVENT, SFT_EVENT_START_RACE,
                            &ev, sizeof(ev), pdMS_TO_TICKS(500)));
@@ -456,70 +461,70 @@ static esp_err_t api_v1_post_handler(httpd_req_t *req)
         request_send_ok(req);
 
     } else if (strcmp(req->uri, "/api/v1/player/connect") == 0) {
-        if(j_parse(jr, json_buffer, len)) {
-            if (j_find_str(jr, "player", value, sizeof(value))) {
-                ip4_addr_t ip4 = {0};
-                if (get_remote_ip4(req, &ip4) == ESP_OK) {
-                    if (sft_on_player_connect(ctx, ip4, value) == ESP_OK)
-                        request_send_ok(req);
-                    else
-                        request_send_error(req, "Failed to create player: %s", value);
-                } else
-                    request_send_error(req, "No remote IP");
-            } else
-                request_send_error(req, "Missing name");
-        } else
-            request_send_error(req, "Failed to parse json");
-
-    } else if (strcmp(req->uri, "/api/v1/player/lap") == 0) {
-        if(j_parse(jr, json_buffer, len)) {
-            json_t lap;
-            int id, rssi;
-            millis_t duration;
+        if (j_find_str(&jr, "player", value, tmp_str_sz)) {
             ip4_addr_t ip4 = {0};
-
-            if (get_remote_ip4(req, &ip4) == ESP_OK &&
-                j_find_str(jr, "player", value, sizeof(value)) &&
-                j_find(jr, "lap", &lap) &&
-                j_find_int(&lap, "id", &id) &&
-                j_find_int(&lap, "rssi", &rssi) &&
-                j_find_uint64(&lap, "duration", &duration)
-            ) {
-                if (sft_on_player_lap(ctx, ip4, id, rssi, duration) == ESP_OK)
+            if (get_remote_ip4(req, &ip4) == ESP_OK) {
+                if (sft_on_player_connect(ctx, ip4, value) == ESP_OK)
                     request_send_ok(req);
                 else
-                    request_send_error(req, "Failed to add players lap");
-
+                    request_send_error(req, "Failed to create player: %s", value);
             } else
-                request_send_error(req, "Failed to parse json");
+            request_send_error(req, "No remote IP");
+        } else
+        request_send_error(req, "Missing key 'player'");
+
+    } else if (strcmp(req->uri, "/api/v1/player/lap") == 0) {
+        json_t lap;
+        int id, rssi;
+        millis_t duration;
+        ip4_addr_t ip4 = {0};
+
+        if (get_remote_ip4(req, &ip4) == ESP_OK &&
+            j_find_str(&jr, "player", value, tmp_str_sz) &&
+            j_find(&jr, "lap", &lap) &&
+            j_find_int(&lap, "id", &id) &&
+            j_find_int(&lap, "rssi", &rssi) &&
+            j_find_uint64(&lap, "duration", &duration)
+        ) {
+            if (sft_on_player_lap(ctx, ip4, id, rssi, duration) == ESP_OK)
+                request_send_ok(req);
+            else
+                request_send_error(req, "Failed to add players lap");
 
         } else
-            request_send_error(req, "Failed to parse json");
+        request_send_error(req, "Failed to parse json");
 
     } else if (strcmp(req->uri, "/api/v1/rssi/update") == 0) {
-        if(j_parse(jr, json_buffer, len)) {
-            int enabled = 0;
-            if (j_find_int(jr, "enabled", &enabled)) {
-                ctx->send_rssi_updates = !! enabled;
-                request_send_ok(req);
-            } else {
-                request_send_error(req, "Failed to parse json");
-            }
+        int enabled = 0;
+        if (j_find_int(&jr, "enabled", &enabled)) {
+            ctx->send_rssi_updates = !! enabled;
+            request_send_ok(req);
         } else {
             request_send_error(req, "Failed to parse json");
         }
 
     } else if ((tok = strstartwith(req->uri, "/api/v1/osd/"))) {
-        return api_v1_post_osd(req, ctx, tok, json_buffer, len);
+        err = api_v1_post_osd(req, ctx, tok, &jr);
 
     } else if (strcmp(req->uri, "/api/v1/time-sync") == 0) {
-        return api_v1_post_time_sync(req, ctx, json_buffer, len);
+        err = api_v1_post_time_sync(req, ctx, &jr);
+
+    } else if (strcmp(req->uri, "/api/v1/ctf/start") == 0) {
+        millis_t duration_ms = 0;
+        if (j_find_uint64(&jr, "duration_ms", &duration_ms)) {
+            sft_ctf_start(ctx, duration_ms);
+            request_send_ok(req);
+        } else {
+            request_send_error(req, "Failed to parse json");
+        }
 
     } else {
         request_send_error(req, "404 Not found - %s", req->uri);
     }
 
-    return ESP_OK;
+out:
+    free(json_buf);
+    return err;
 }
 
 void sft_event_rssi_update(void* arg, esp_event_base_t base, int32_t id, void* event_data)
@@ -561,6 +566,7 @@ void sft_event_rssi_update(void* arg, esp_event_base_t base, int32_t id, void* e
             }
         }
     }
+
     gui_send_all(ctx, jw->buf);
     free(buf);
 }
@@ -693,16 +699,18 @@ esp_err_t gui_send_http2(ctx_t *ctx, const char *url, const char *json)
     esp_http_client_config_t cfg = {
         .url = url,
         .method = HTTP_METHOD_POST,
-        .buffer_size_tx = 1024 * 4,
-        .buffer_size = 1024 * 4,
+        //.buffer_size_tx = 1024 * 4,
+        //.buffer_size = 1024 * 4,
+
     };
     esp_http_client_handle_t client = esp_http_client_init(&cfg);
 
     /*esp_http_client_set_url(client, url);*/
     /*esp_http_client_set_method(client, HTTP_METHOD_POST);*/
-    esp_http_client_set_header(client, "Content-Type", "application/json");
-    esp_http_client_set_header(client, "Connection", "Keep-Alive");
-    esp_http_client_set_header(client, "Keep-Alive", "timeout=5, max=200");
+    esp_http_client_set_header(client, "Accept", "*/*");
+    esp_http_client_set_header(client, "Content-Type", "application/json; charset=utf-8");
+    /*esp_http_client_set_header(client, "Connection", "Keep-Alive");*/
+    /*esp_http_client_set_header(client, "Keep-Alive", "timeout=5, max=200");*/
     esp_http_client_set_header(client, "Content-Length", buf);
     esp_http_client_set_post_field(client, json, strlen(json));
     err = esp_http_client_perform(client);
@@ -714,6 +722,7 @@ esp_err_t gui_send_http2(ctx_t *ctx, const char *url, const char *json)
     } else {
         ESP_LOGE(TAG, "HTTP POST request failed: %s", esp_err_to_name(err));
     }
+    esp_http_client_cleanup(client);
     return err;
 }
 
@@ -733,6 +742,7 @@ esp_err_t gui_send_http(ctx_t *ctx, const char *url, const char *post_data) {
     };
     esp_http_client_handle_t client = esp_http_client_init(&config);
 
+    ESP_LOGI(TAG, "URL: %s -(%d) %s", url, strlen(post_data), post_data);
     // GET Request
     esp_http_client_set_url(client, url);
     esp_http_client_set_method(client, HTTP_METHOD_POST);
@@ -746,17 +756,19 @@ esp_err_t gui_send_http(ctx_t *ctx, const char *url, const char *post_data) {
         if (wlen < 0) {
             ESP_LOGE(TAG, "HTTP client failed Write failed %d", wlen);
         }
+
         content_length = esp_http_client_fetch_headers(client);
         if (content_length < 0) {
             ESP_LOGE(TAG, "HTTP client fetch headers failed");
         } else {
             int data_read = esp_http_client_read_response(client, output_buffer, MAX_HTTP_OUTPUT_BUFFER);
             if (data_read >= 0) {
+                uint64_t len = esp_http_client_get_content_length(client);
                 ESP_LOGI(TAG, "HTTP POST Status = %d, content_length = %"PRId64,
-                esp_http_client_get_status_code(client),
-                esp_http_client_get_content_length(client));
+                esp_http_client_get_status_code(client), len);
                 ESP_LOG_BUFFER_HEX(TAG, output_buffer, strlen(output_buffer));
-                ESP_LOGI(TAG, "%.*s", strlen(output_buffer), output_buffer);
+                int leni = len;
+                ESP_LOGI(TAG, "%.*s", leni, output_buffer);
             } else {
                 ESP_LOGE(TAG, "Failed to read response");
             }

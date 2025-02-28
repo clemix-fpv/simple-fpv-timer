@@ -8,3 +8,8 @@ src/src/static_files.h
 .clang_complete
 .gcc-flags.json
 .ccls
+.venv
+__pycache__
+src/server/config.json
+tools/config.json
+src/.cache

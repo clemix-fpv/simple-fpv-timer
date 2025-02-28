@@ -328,8 +328,8 @@ void task_rssi( void * priv )
 
         if (timer_over(&s1, &ms)) {
             ms = 1000 - ms;
-            printf("rx5808 rssi reads %lu/%llums (%0.2f) millis:%llu\n",
-                   read_cnt, ms, (float)read_cnt/ms, get_millis());
+            /*printf("rx5808 rssi reads %lu/%llums (%0.2f) millis:%llu\n",*/
+            /*       read_cnt, ms, (float)read_cnt/ms, get_millis());*/
             read_cnt=0;
             timer_start(&s1, 1000, NULL, NULL);
         }

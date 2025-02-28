@@ -123,6 +123,7 @@ typedef struct lap_counter_s {
 typedef struct {
     millis_t enter;
     millis_t captured_ms;
+    millis_t captured_start;
 } ctf_team_t;
 
 typedef struct {
@@ -133,6 +134,8 @@ typedef struct {
 } ctf_node_t;
 
 typedef struct cft_s {
+    millis_t start_time;
+    millis_t duration_ms;
     int num_teams;
     char team_names[MAX_PLAYER][MAX_NAME_LEN];
     ctf_node_t nodes[MAX_PLAYER];
@@ -147,6 +150,7 @@ typedef struct {
 
     wifi_t wifi;
     lap_counter_t lc;
+    esp_timer_handle_t race_timer;
     ctf_t ctf;
     led_t led;
 
@@ -167,7 +171,8 @@ esp_err_t sft_on_player_lap(ctx_t *ctx, ip4_addr_t ip4, int id, int rssi, millis
 bool sft_update_settings(ctx_t *ctx);
 void sft_start_calibration(ctx_t *ctx);
 void sft_emit_led_blink(ctx_t *ctx, color_t color);
-
+void sft_ctf_stop(ctx_t *ctx);
+void sft_ctf_start(ctx_t *ctx, millis_t duration_ms);
 void dump_buffer(uint8_t *buf, uint8_t len);
 
 

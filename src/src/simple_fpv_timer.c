@@ -13,6 +13,7 @@
 #include <esp_netif_ip_addr.h>
 #include <string.h>
 #include "lwip/def.h"
+#include "lwip/ip4_addr.h"
 #include "lwip/ip_addr.h"
 #include "osd.h"
 #include "timer.h"
@@ -23,6 +24,8 @@ static const char * TAG = "SFT";
 
 void sft_send_new_lap(ctx_t *ctx, lap_t *lap);
 void sft_register_me(ctx_t *ctx);
+bool sft_build_api_url(ctx_t *ctx, const char *path, char *buf, int buf_len);
+ip4_addr_t get_ip(ctx_t *ctx);
 
 bool sft_encode_settings(ctx_t *ctx, json_writer_t *jw)
 {
@@ -203,11 +206,11 @@ struct player_s* sft_player_get_or_create(lap_counter_t *lc, ip4_addr_t ip4, con
 }
 
 esp_err_t sft_ctf_send_rssi_config(ctx_t *ctx, ip4_addr_t *ip) {
+
     static const int buf_len = 1024 * 3;
     char *buf;
     static char url[64];
     json_writer_t jw_obj, *jw;
-    const struct config_meta* cm = cfg_meta();
     esp_err_t err = ESP_ERR_TIMEOUT;
 
     if (!(buf = malloc(buf_len))){
@@ -222,9 +225,45 @@ esp_err_t sft_ctf_send_rssi_config(ctx_t *ctx, ip4_addr_t *ip) {
     #define ends_with(a,b)  (strncmp(a + (strlen(a) - strlen(b)), b, strlen(b))  == 0)
 
 
+    snprintf(url, sizeof(url), "http://%s/api/v1/settings", ip4addr_ntoa(ip));
+#if 1
+    for(int i = 0; i < CFG_MAX_FREQ; i++) {
+        const struct config_meta* cm = cfg_meta();
+        char prefix[16];
+        jw_init(jw, buf, buf_len);
+        snprintf(prefix, 16, "rssi[%d]", i);
+        jw_object(jw) {
+            for(; cm->name != NULL; cm++) {
+                if (starts_with(cm->name, prefix)) {
+                    if (
+                        ends_with(cm->name, "name") ||
+                        ends_with(cm->name, "freq") ||
+                        ends_with(cm->name, "peak") ||
+                        ends_with(cm->name, "filter") ||
+                        ends_with(cm->name, "offset_enter") ||
+                        ends_with(cm->name, "offset_leave") ||
+                        ends_with(cm->name, "led_color")
+                    ) {
+                        cfg_meta_json_encode(&ctx->cfg.eeprom, cm, jw);
+                    }
+                }
+            }
+        }
+        if (!jw->error) {
+            ESP_LOGI(TAG, "%s", jw->buf);
+            gui_send_http(ctx, url, jw->buf);
+        } else {
+            ESP_LOGE(TAG, "JSON error on sending CTF/RSSI cfg, need %"PRIu16" more", jw->needed_space);
+        }
+    }
+#else
+    const struct config_meta* cm = cfg_meta();
+    char prefix[16];
+    jw_init(jw, buf, buf_len);
+    snprintf(prefix, 16, "rssi[");
     jw_object(jw) {
         for(; cm->name != NULL; cm++) {
-            if (starts_with(cm->name, "rssi[")) {
+            if (starts_with(cm->name, prefix)) {
                 if (
                     ends_with(cm->name, "name") ||
                     ends_with(cm->name, "freq") ||
@@ -239,14 +278,13 @@ esp_err_t sft_ctf_send_rssi_config(ctx_t *ctx, ip4_addr_t *ip) {
             }
         }
     }
-     if (!jw->error) {
-        snprintf(url, sizeof(url), "http://%s/api/v1/settings", ip4addr_ntoa(ip));
+    if (!jw->error) {
         ESP_LOGI(TAG, "%s", jw->buf);
         gui_send_http(ctx, url, jw->buf);
     } else {
         ESP_LOGE(TAG, "JSON error on sending CTF/RSSI cfg, need %"PRIu16" more", jw->needed_space);
     }
-
+#endif
     free(buf);
 
     return err;
@@ -259,6 +297,7 @@ esp_err_t sft_ctf_connect_node(ctx_t *ctx, ip4_addr_t ip, const char *name)
 
     int i;
 
+    ESP_LOGI(TAG, "CTF connect node: %s(%s)", name, ip4addr_ntoa(&ip));
     for(i=1; i < MAX_PLAYER; i++)
         if (ctf->nodes[i].ipv4.addr == 0)
             break;
@@ -270,8 +309,6 @@ esp_err_t sft_ctf_connect_node(ctx_t *ctx, ip4_addr_t ip, const char *name)
     memset (node, 0, sizeof(ctf_node_t));
 
     node->ipv4 = ip;
-
-    sft_ctf_send_rssi_config(ctx, &ip);
 
     return ESP_OK;
 }
@@ -375,9 +412,9 @@ void sft_on_drone_passed_race(ctx_t *ctx, int freq, int rssi, millis_t abs_time_
                                                abs_time_ms - last_lap_time,
                                                abs_time_ms);
 
-            if (ctx->wifi.state == WIFI_STA) {
+            if (ctx->cfg.eeprom.node_mode == CFG_NODE_MODE_CHILD)
                 sft_send_new_lap(ctx, lap);
-            }
+
             ESP_LOGI(TAG, "LAP[%d]: %llums rssi:%d", lap->id, lap->duration_ms, lap->rssi);
             if (cfg_has_elrs_uid(&cfg->eeprom)) {
 
@@ -393,6 +430,28 @@ void sft_on_drone_passed_race(ctx_t *ctx, int freq, int rssi, millis_t abs_time_
     }
 }
 
+void ctf_node_set_current(ctf_node_t *node, int team_idx)
+{
+
+    ESP_LOGE(TAG, "%s - set %d", __func__, team_idx);
+    if (node->current == team_idx)
+        return;
+
+    if (node->current >= 0 && node->current < MAX_PLAYER) {
+        ctf_team_t *oteam = &node->teams[node->current];
+        oteam->captured_ms += get_millis() - oteam->captured_start;
+        ESP_LOGE(TAG, "%s - old: %"PRIu64, __func__, oteam->captured_ms);
+        oteam->captured_start = 0;
+        node->current = -1;
+    }
+    if (team_idx >= 0 && team_idx < MAX_PLAYER) {
+        ctf_team_t *nteam = &node->teams[team_idx];
+        node->current = team_idx;
+        nteam->captured_start = get_millis();
+        ESP_LOGE(TAG, "%s - new: %"PRIu64" enter:%"PRIu64, __func__, nteam->captured_ms, nteam->captured_start);
+    }
+}
+
 void sft_on_drone_passed_ctf(ctx_t *ctx, int freq, int rssi, millis_t abs_time_ms)
 {
     config_t *cfg = &ctx->cfg;
@@ -401,6 +460,8 @@ void sft_on_drone_passed_ctf(ctx_t *ctx, int freq, int rssi, millis_t abs_time_m
     config_rssi_t *my_rssi = NULL;
     ctf_node_t *node = &ctx->ctf.nodes[0];
     int current_team_idx = -1;
+
+    ESP_LOGI(TAG, "%s - ENTER", __func__);
 
     int count_drone_in = 0;
     for (idx = 0; idx < CFG_MAX_FREQ; idx++) {
@@ -425,11 +486,11 @@ void sft_on_drone_passed_ctf(ctx_t *ctx, int freq, int rssi, millis_t abs_time_m
     if(my_team && xSemaphoreTake(ctx->sem, ( TickType_t ) 10 ) == pdTRUE ) {
         if (count_drone_in == 0 && my_team) {
             if (node->current != current_team_idx){
-                node->current = current_team_idx;
+                ctf_node_set_current(node, current_team_idx);
                 sft_emit_led_static(ctx, my_rssi->led_color);
             }
         } else {
-            node->current = -1;
+            ctf_node_set_current(node, -1);
             sft_emit_led_blink(ctx, my_rssi->led_color);
         }
         xSemaphoreGive(ctx->sem);
@@ -488,11 +549,11 @@ void sft_on_drone_enter_ctf(ctx_t *ctx, int freq, int rssi, millis_t abs_time_ms
     if(my_team && xSemaphoreTake(ctx->sem, ( TickType_t ) 10 ) == pdTRUE ) {
         if (count_drone_in == 1) {
             if (node->current != current_team_idx){
-                node->current = current_team_idx;
+                ctf_node_set_current(node, current_team_idx);
                 sft_emit_led_static(ctx, my_rssi->led_color);
             }
         } else {
-            node->current = -1;
+            ctf_node_set_current(node, -1);
             sft_emit_led_blink(ctx, my_rssi->led_color);
         }
         xSemaphoreGive(ctx->sem);
@@ -512,8 +573,20 @@ void sft_on_drone_enter(ctx_t *ctx, int freq, int rssi, millis_t abs_time_ms)
     }
 }
 
+static void sft_race_on_1s_timer(void* arg)
+{
+    ctx_t *ctx = (ctx_t*) arg;
+    static int count = 0;
+    if (count++ > 10) {
+        sft_register_me(ctx);
+        count = 0;
+    }
+}
+
 void sft_race_mode_deinit(ctx_t *ctx)
 {
+    esp_timer_stop(ctx->race_timer);
+    esp_timer_delete(ctx->race_timer);
     memset(&ctx->lc, 0, sizeof(ctx->lc));
 }
 
@@ -521,6 +594,56 @@ void sft_race_mode_init(ctx_t *ctx)
 {
     memset(&ctx->lc, 0, sizeof(ctx->lc));
     strcpy(ctx->lc.players[0].name, ctx->cfg.running.rssi[0].name);
+
+    const esp_timer_create_args_t timer_args = {
+        .callback = &sft_race_on_1s_timer,
+        .arg = (void*) ctx,
+        .name = "sft-race-timer"
+    };
+    ESP_ERROR_CHECK(esp_timer_create(&timer_args, &ctx->race_timer));
+    esp_timer_start_periodic(ctx->race_timer, 1000 * 1000);
+
+}
+
+void sft_ctf_start(ctx_t *ctx, millis_t duration_ms)
+{
+    int i, j;
+    ctf_t *ctf = &ctx->ctf;
+
+    ctf->duration_ms = duration_ms;
+    ctf->start_time = get_millis();
+
+    for(i = 0; i < MAX_PLAYER; i++) {
+        ctf_node_t *node = &ctf->nodes[i];
+        node->current = -1;
+
+        for(j=0; j < MAX_PLAYER; j++) {
+            ctf_team_t *team = &node->teams[j];
+            team->enter = 0;
+            team->captured_ms = 0;
+        }
+    }
+
+    sft_emit_led_static(ctx, COLOR_WHITE);
+}
+
+void sft_ctf_stop(ctx_t *ctx)
+{
+    ctf_t *ctf = &ctx->ctf;
+
+    ctf->duration_ms = 0;
+    ctf->start_time = 0;
+    sft_emit_led_static(ctx, COLOR_BLACK);
+}
+
+static bool sft_ctf_is_running(ctx_t *ctx)
+{
+    ctf_t *ctf = &ctx->ctf;
+
+    if (ctf->duration_ms > 0) {
+        return (get_millis() - ctf->start_time) < ctf->duration_ms;
+    }
+    return false;
 }
 
 static void sft_ctf_send_status_update(ctx_t *ctx)
@@ -531,6 +654,7 @@ static void sft_ctf_send_status_update(ctx_t *ctx)
     ctf_t *ctf = &ctx->ctf;
     int i,j;
 
+    ESP_LOGI(TAG, "ctf_send_status_update!");
 
     if (!(buf = malloc(buf_len))) {
         return;
@@ -562,14 +686,19 @@ static void sft_ctf_send_status_update(ctx_t *ctx)
                             jw_object(jw) {
                                 jw_kv_ip4(jw, "ipv4", node->ipv4);
                                 jw_kv_str(jw, "name", node->name);
-                                if (node->current) {
+                                if (node->current >= 0) {
                                     jw_kv_int(jw, "current", node->current);
                                 }
 
                                 jw_kv(jw, "captured_ms") {
                                     jw_array(jw) {
                                         for(j=0; j < ctf->num_teams; j++) {
-                                            jw_uint64(jw, node->teams[j].captured_ms);
+                                            ctf_team_t *team = &node->teams[j];
+                                            millis_t ms = team->captured_ms;
+
+                                            if (node->current == j && team->captured_start > 0)
+                                                ms += get_millis() - team->captured_start;
+                                            jw_uint64(jw, ms);
                                         }
                                     }
                                 }
@@ -581,28 +710,54 @@ static void sft_ctf_send_status_update(ctx_t *ctx)
         }
     }
     if (!jw->error) {
-        gui_send_all(ctx, jw->buf);
+        if (ctx->cfg.eeprom.node_mode == CFG_NODE_MODE_CHILD) {
+            static const int url_len = 64;
+            char *url;
+
+            if (!(url = malloc(url_len)))
+                goto out;
+
+            if (!sft_build_api_url(ctx, "api/v1/ctf/update", url, url_len)){
+                free(url);
+                goto out;
+            }
+            gui_send_http(ctx, url, jw->buf);
+
+            free (url);
+        } else {
+            gui_send_all(ctx, jw->buf);
+        }
     } else {
         ESP_LOGE(TAG, "Buffer to small for sending CTF stats, need %"PRIu16" more", jw->needed_space);
     }
 
+out:
     free(buf);
 }
 
 static void sft_ctf_on_1s_timer(void* arg)
 {
     ctx_t *ctx = (ctx_t*) arg;
+    ctf_t *ctf = &ctx->ctf;
+    static int count = 0;
 
     /*ESP_LOGI(TAG, "On sft_ctf_on_1s_timer!");*/
 
-    if( xSemaphoreTake(ctx->sem, ( TickType_t ) 10 ) == pdTRUE ) {
-        int idx = ctx->ctf.nodes[0].current;
-        if (idx >= 0 && idx < MAX_PLAYER) {
-            ctx->ctf.nodes[0].teams[idx].captured_ms += 1000;
+    if (!sft_ctf_is_running(ctx)){
+        if( xSemaphoreTake(ctx->sem, ( TickType_t ) 10 ) == pdTRUE ) {
+
+            ESP_LOGE(TAG, "call node_set_current from %d", __LINE__);
+            ctf_node_set_current(&ctf->nodes[0], -1);
+
+            xSemaphoreGive(ctx->sem);
         }
-        xSemaphoreGive(ctx->sem);
     }
-    sft_ctf_send_status_update(ctx);
+
+    if (count++ > 3) {
+        /* We send the status update also as hardbeat */
+        sft_ctf_send_status_update(ctx);
+        count = 0;
+    }
 }
 
 void sft_ctf_mode_deinit(ctx_t *ctx)
@@ -642,6 +797,7 @@ void sft_ctf_mode_init(ctx_t *ctx)
     ctf->num_teams = i;
 
     strncpy(ctf->nodes[0].name, ctx->cfg.eeprom.node_name, MAX_NAME_LEN);
+    ctf->nodes[0].ipv4 = get_ip(ctx);
 
     const esp_timer_create_args_t timer_args = {
         .callback = &sft_ctf_on_1s_timer,
@@ -818,38 +974,89 @@ ip4_addr_t get_gw(ctx_t *ctx) {
     return ip;
 }
 
+ip4_addr_t get_ip(ctx_t *ctx) {
+    esp_netif_ip_info_t ipinfo;
+    ip4_addr_t ip = {0};
+
+    esp_netif_t* netif=NULL;
+    if (ctx->cfg.eeprom.wifi_mode == CFG_WIFI_MODE_STA) {
+        netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    } else {
+        netif = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
+    }
+
+    if (esp_netif_get_ip_info(netif,&ipinfo) == ESP_OK) {
+        printf("IP:  " IPSTR "\n", IP2STR(&ipinfo.ip));
+        printf("GW:  " IPSTR "\n", IP2STR(&ipinfo.gw));
+        printf("MSK: " IPSTR "\n", IP2STR(&ipinfo.netmask));
+        ip.addr = ipinfo.ip.addr;
+        return ip;
+    }
+
+    return ip;
+}
+
+bool sft_build_api_url(ctx_t *ctx, const char *path, char *buf, int buf_len) {
+
+    ip4_addr_t ctrl_ip;
+
+    ctrl_ip.addr = ctx->cfg.eeprom.ctrl_ipv4;
+    if (ctrl_ip.addr == 0)
+        ctrl_ip = get_gw(ctx);
+
+    int len = snprintf(buf, buf_len, "http://%s:%"PRIu16"%s%s",
+                       ip4addr_ntoa(&ctrl_ip), ctx->cfg.eeprom.ctrl_port,
+                       path[0] == '/' ? "": "/", path);
+
+    return len <= buf_len;
+}
+
 /**
  * This function get's called, once the station connects to a AP
  * and a IP address was assigned!
  */
 void sft_register_me(ctx_t *ctx)
 {
-    static char url[64];
-    static char json[64];
-    static json_writer_t jw;
-    ip4_addr_t ctrl_ip;
+    static const int buf_len = 64;
+    char *url = NULL;
+    char *json = NULL;
+    json_writer_t jw;
+    ip4_addr_t local_ip;
 
     if (ctx->cfg.eeprom.node_mode != CFG_NODE_MODE_CHILD)
         return;
 
-    ctrl_ip.addr = ctx->cfg.eeprom.ctrl_ipv4;
-    if (ctrl_ip.addr == 0)
-        ctrl_ip = get_gw(ctx);
+    if (!(url = malloc(buf_len * 2))) {
+        ESP_LOGE(TAG, "Out of memory!");
+        return;
+    }
+    json = &url[buf_len];
 
-    jw_init(&jw, json, sizeof(json));
+    if (!sft_build_api_url(ctx, "api/v1/player/connect", url, buf_len)){
+        free(url);
+        return;
+    }
 
-    snprintf(url, sizeof(url), "http://%s/api/v1/player/connect", ip4addr_ntoa(&ctrl_ip));
+
+    local_ip = get_ip(ctx);
+
+    jw_init(&jw, json, buf_len);
     if (ctx->cfg.eeprom.game_mode == CFG_GAME_MODE_RACE) {
         jw_object(&jw){
             jw_kv_str(&jw, "player", ctx->cfg.eeprom.rssi[0].name);
+            jw_kv_str(&jw, "name", ctx->cfg.eeprom.node_name);
+            jw_kv_str(&jw, "ip4", ip4addr_ntoa(&local_ip));
         }
     } else {
         jw_object(&jw){
             jw_kv_str(&jw, "player", ctx->cfg.eeprom.node_name);
+            jw_kv_str(&jw, "name", ctx->cfg.eeprom.node_name);
+            jw_kv_str(&jw, "ip4", ip4addr_ntoa(&local_ip));
         }
     }
 
     gui_send_http(ctx, url, jw.buf);
+    free(url);
 }
 
 /**
@@ -857,39 +1064,35 @@ void sft_register_me(ctx_t *ctx)
  */
 void sft_send_new_lap(ctx_t *ctx, lap_t *lap)
 {
-    static char url[64];
-    static char json[64];
-    static json_writer_t jw;
-    esp_err_t err;
+    static const int buf_len = 64;
+    char *buf;
+    char *json;
+    json_writer_t jw;
+    ip4_addr_t local_ip;
 
+    if (!(buf = malloc(buf_len * 2))) {
+        ESP_LOGE(TAG, "Out of memory!");
+        return;
+    }
+    json = &buf[buf_len];
+
+    local_ip = get_ip(ctx);
     jw_init(&jw, json, sizeof(json));
-
-    snprintf(url, sizeof(url),
-             "http://"IPSTR"/api/v1/player/lap",
-             IP2STR(&ctx->server_ipv4));
     jw_object(&jw){
         jw_kv_str(&jw, "player", ctx->cfg.eeprom.rssi[0].name);
         jw_kv_int(&jw, "id", lap->id);
         jw_kv_int(&jw, "rssi", lap->rssi);
         jw_kv_int(&jw, "duration", lap->duration_ms);
+        jw_kv_str(&jw, "ipv4", ip4addr_ntoa(&local_ip));
     }
 
-    esp_http_client_config_t cfg = {
-        .url = url,
-        .method = HTTP_METHOD_POST,
-    };
-    esp_http_client_handle_t client = esp_http_client_init(&cfg);
+    if (!sft_build_api_url(ctx, "api/v1/player/lap", buf, buf_len))
+        goto out;
 
-    esp_http_client_set_header(client, "Content-Type", "application/json");
-    esp_http_client_set_post_field(client, json, strlen(json));
-    err = esp_http_client_perform(client);
-    if (err == ESP_OK) {
-        ESP_LOGI(TAG, "HTTP POST Status = %d, content_length = %"PRId64,
-                esp_http_client_get_status_code(client),
-                esp_http_client_get_content_length(client));
-    } else {
-        ESP_LOGE(TAG, "HTTP POST request failed: %s", esp_err_to_name(err));
-    }
+    gui_send_http(ctx, buf, json);
+
+out:
+    free(buf);
 }
 
 void ip_event_handler(void *ctxp, esp_event_base_t event_base,

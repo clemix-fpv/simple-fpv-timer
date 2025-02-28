@@ -1,7 +1,8 @@
 import uPlot, { Options, Axis, AlignedData } from "../../lib/uPlot.js";
 import van from "../../lib/van-1.5.2";
+import { Notifications } from "../../Notifications.js";
 import { Config, Ctf, Page } from "../../SimpleFpvTimer";
-import { format_ms, numberToColor } from "../../utils.js";
+import { $, format_ms, numberToColor } from "../../utils.js";
 
 
 const { h1, h3,label, form, select,input,img,fieldset, option, button, div, h5, pre, ul, li, span, a, table, thead, tbody, th, tr,td} = van.tags
@@ -11,6 +12,7 @@ export class CtfScoreingPage extends Page {
     private _uplot_div: HTMLElement;
     private _legend_div: HTMLElement;
     private _nodes_div: HTMLElement;
+    private _buttons_div: HTMLElement;
     uplot: uPlot;
     cfg: Config;
 
@@ -80,9 +82,85 @@ export class CtfScoreingPage extends Page {
         return this._nodes_div;
     }
 
+
+    private updateButtonsDiv(duration_ms: number) {
+
+        var d = div();
+        if (duration_ms > 0) {
+            d = div({class: "mb-3 input-group",},
+                    div({class: 'input-group-prepend'},
+                        button({class: "btn btn-outline-danger", type: "button", onclick: () => {
+                            this.stopCtf();
+
+                    }}, "Cancel CTF Round"),
+                    ),
+                    span({class:'input-group-text'}, format_ms(duration_ms)),
+                );
+
+        } else {
+            d = div({class: "mb-3 input-group",},
+                    div({class: 'input-group-prepend'},
+                        button({class: "btn btn-outline-success", type: "button", onclick: () => {
+
+                            var duration = ($('input_ctf_duration') as HTMLInputElement).value;
+                            this.startCtf(Number(duration));
+
+                    }}, "CTF Start"),
+                    ),
+                    span({class:'input-group-text'},'with'),
+                    input({class: 'form-control', id:'input_ctf_duration', value: "10"}),
+                    span({class:'input-group-text'},'minutes duration'),
+
+                );
+
+        }
+        this.buttonsDiv.replaceChildren(d);
+    }
+
+    async stopCtf() {
+        const url = "/api/v1/ctf/stop";
+        try{
+            const response = await fetch(url, {
+                method: 'GET',
+            });
+            if (!response.ok) {
+                Notifications.showError({msg: `Failed to save config ${response.status}`});
+            }
+        }catch(e){
+            console.error(e);
+        }
+    }
+
+    async startCtf(duration_minutes: number) {
+        const url = "/api/v1/ctf/start";
+        try{
+            const data = {duration_ms: Number(duration_minutes) * 60 * 1000};
+            console.debug(data);
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                },
+                body: JSON.stringify(data)
+            });
+            if (!response.ok) {
+                Notifications.showError({msg: `Failed to save config ${response.status}`});
+            }
+        }catch(e){
+            console.error(e);
+        }
+    }
+
+    get buttonsDiv() {
+        if (!this._buttons_div)
+            this._buttons_div = div();
+            return this._buttons_div;
+    }
+
     getDom() {
         if (! this.root) {
             this.root = div(
+                this.buttonsDiv,
                 this.nodesDiv,
                 this.uplotDiv,
                 this.legendDiv,
@@ -189,12 +267,13 @@ export class CtfScoreingPage extends Page {
 
             d.append(
                 span({class: "border rounded", style: `font-weight: bold; margin: 10px; padding: 10px; text-shadow: 1px 1px 1px black; background-color: ${color}A1`},
-                    node.name
+                    a({href:'http://'+ node.ipv4 , style: "color: #fff; font-weight: bold; text-decoration: none; text-shadow: 1px 1px 1px black;", target: "_blank"},node.name )
                 )
             );
         }
         this.nodesDiv.replaceChildren(d);
 
+        this.updateButtonsDiv(ctf.time_left_ms);
     }
 
 

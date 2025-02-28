@@ -152,6 +152,11 @@ export class PlayersPage extends Page {
     players: PlayerRanking[];
     racemode: RaceMode;
 
+    private async startRace() {
+        const url = "/api/v1/clear_laps";
+        await fetch(url);
+    }
+
     getActionsDom(): HTMLElement {
         if (!this.actionsDom) {
             this.actionsDom = div(
@@ -177,7 +182,7 @@ export class PlayersPage extends Page {
 
                 div({class: "mb-3", style: "margin: 5px 3px"},
                     button({class: "btn btn-primary", type: "button", onclick: () => {
-
+                        this.startRace();
                     }}, "Start Race!")
                 )
             );
