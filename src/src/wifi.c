@@ -80,6 +80,10 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
         ESP_LOGI(TAG, "station "MACSTR" leave, AID=%d, reason=%d",
                  MAC2STR(event->mac), event->aid, event->reason);
 
+    } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
+        esp_wifi_connect();
+        ESP_LOGI(TAG, "Station started");
+
     } else if (event_id == WIFI_EVENT_AP_STACONNECTED) {
         ESP_LOGI(TAG, "WIFI_EVENT_AP_STACONNECTED");
         wifi->sta_connected = true;
@@ -177,7 +181,11 @@ void wifi_setup(wifi_t *wifi, const config_data_t *cfg)
 
         wifi_config_t wifi_config = {
             .sta = {
+                .failure_retry_cnt = 8,
+                .scan_method = WIFI_ALL_CHANNEL_SCAN,
+                .sort_method = WIFI_CONNECT_AP_BY_SIGNAL,
                 .threshold.authmode = WIFI_AUTH_OPEN,
+                .sae_pwe_h2e = WPA3_SAE_PWE_BOTH,
             },
         };
         strcpy((char*)wifi_config.sta.ssid, cfg->ssid);
@@ -187,7 +195,6 @@ void wifi_setup(wifi_t *wifi, const config_data_t *cfg)
         ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA) );
         ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config) );
         ESP_ERROR_CHECK(esp_wifi_start() );
-        esp_wifi_connect();
 
         start = get_millis();
         while ((get_millis() - start) < 30000 && !wifi->sta_connected ) {
