@@ -1,25 +1,8 @@
 # simple-fpv-timer
 A simple FPV timer based on ESP32 + RX5808.
-It is inspired by https://github.com/qdrk/fpvsim-timer and is using the same hardware setup for now.
-```
-┌───┌───────┬───┐
-│   │ESP 32 │   │                 ┌───────┐  ┌──────┬────────┐
-│   │       │   │              ┌──┤100kOhm├──┤GND   │ RX5808 │
-│   │       │   │              │  └───────┘  │Video └────────┤
-│   │       │   │              │             │A6.5           │
-│   │       │D34├──────────────┴─────────────┤RSSI           │
-│   │       │5V ├────────────────────────────┤VCC            │
-│   └───────┘GND├────────────────────────────┤GND            │
-│               │            ┌───────┐ ┌─────┤CH3            │
-│            D18├────────────┤ 1kOhm ├─┘┌────┤CH2            │
-│               │            └───────┘  │┌───┤CH1            │
-│               │            ┌───────┐  ││   └───────────────┘
-│            D5 ├────────────┤ 1kOhm ├──┘│
-│               │            └───────┘   │
-│     ┌───┐  D23┼────────┐   ┌───────┐   │
-└─────└───┘─────┘        └───┤ 1kOhm ├───┘
-                             └───────┘
-```
+It is inspired by https://github.com/qdrk/fpvsim-timer and is using the same hardware setup to connect the RX5808. In addition we use GPIO2 to manage the WS2812 LED stribes.
+
+<img src="https://github.com/clemix-fpv/simple-fpv-timer/blob/main/doc/images/circuit.png?raw=true" width="400px" />
 
 This project is still under development!
 
@@ -31,6 +14,11 @@ This project is still under development!
  * audio signal on lap count
  * live signal strange view
  * race view, multiple FPV pilots in one frontend (each pilot needs it's own hardware)
+ * WS2812 LED stripe support
+ * Different "Game modes":
+    * Race mode (measure your fastest laps)
+    * CTF (Capture the flag), fly near LED-Stripes and "collect" them with your Team
+    * Spectrum, simple RSSI values of multiple channels. Is using one RX5808 to hop from channel to channel and capture signal strength.
 
 # Installation
 
@@ -42,7 +30,7 @@ pio run -t upload
 pio device monitor
 ```
 By default the esp32 will run an open AccessPoint and using a SSID like `simple-FPV-timer-XX`, where `XX` is some random generated string.
-After connecting to the AP, the captive portal webpage should automatically be opened otherwise use `http://10.0.0.1` as address in your browser.
+After connecting to the AP, the captive portal webpage should automatically be opened otherwise use `http://192.168.4.1` as address in your browser.
 
 # Screenshots
 
