@@ -2,7 +2,7 @@
 A simple FPV timer based on ESP32 + RX5808.
 It is inspired by https://github.com/qdrk/fpvsim-timer and is using the same hardware setup to connect the RX5808. In addition we use GPIO2 to manage the WS2812 LED stribes.
 
-<img src="https://github.com/clemix-fpv/simple-fpv-timer/blob/main/doc/images/circuit.png?raw=true" width="400px" />
+<img src="https://github.com/clemix-fpv/simple-fpv-timer/blob/led_stripe-wip-server/doc/images/circuit.png?raw=true" width="400px" />
 
 This project is still under development!
 
