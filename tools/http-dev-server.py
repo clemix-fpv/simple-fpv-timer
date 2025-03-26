@@ -177,6 +177,7 @@ config = {
     "node_name": "",
     "node_mode": 0,
     "ctrl_ipv4": "0.0.0.0",
+    "ctrl_port": 9090,
 
     #"game_mode": 0,
      "game_mode": 1,
@@ -475,11 +476,11 @@ def handle_api_v1_settings():
 def handle_api_v1_settings(json=JSONBody()):
     for key in json:
         print("KEY:{}".format(key))
-        if key in ctx.config:
+        if key in config:
             print("{} = {} of {}".format(key, json[key], type(json[key])))
             ctx.config[key] = int(json[key]) if  json[key].isnumeric() else json[key];
         else:
-            return {"status": "error", "msg": "Invalid key/value pair"}
+            return {"status": "error", "msg": "Invalid key/value pair - unkown key {}".format(key)}
 
 
     save_config(ctx.config);
