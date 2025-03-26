@@ -373,8 +373,20 @@ class WSHandler(WebsocketHandler):
             }))
             self.ctf_ctx['time'] = time.time();
 
-
-
+    def random_spectrum_update(self, session):
+        data = []
+        data.append({
+                't': int(time.time() * 1000),
+                'r': randrange(500, 1200),
+                's': randrange(500, 1200),
+                'i': False
+                })
+        json_data = {
+                'type': "rssi",
+                'freq': ctx.config["rssi[0].freq"],
+                'data': data,
+            }
+        session.send_text(json.dumps(json_data))
 
     async def periodic(self, session):
         try:
@@ -385,6 +397,9 @@ class WSHandler(WebsocketHandler):
 
                 elif ctx.config['game_mode'] == 1: # CTF
                     self.random_ctf_update(session);
+
+                elif ctx.config['game_mode'] == 2: # SPECTRUM
+                    self.random_spectrum_update(session);
 
         except Exception as e:
             print (e)
