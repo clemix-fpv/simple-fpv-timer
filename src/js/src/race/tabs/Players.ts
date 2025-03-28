@@ -1,4 +1,5 @@
 import van from "../../lib/van-1.5.2.js"
+import { Notifications } from "../../Notifications.js";
 import { Lap, Page, Player } from "../../SimpleFpvTimer.js";
 import { $, enumToMap, format_ms } from "../../utils.js";
 
@@ -154,7 +155,15 @@ export class PlayersPage extends Page {
 
     private async startRace() {
         const url = "/api/v1/clear_laps";
-        await fetch(url);
+        const response = await fetch(url);
+        if (!response.ok) {
+            Notifications.showError({msg: `Failed to save config ${response.status}`})
+        } else {
+            document.dispatchEvent(
+                new CustomEvent("SFT_PLAYERS_UPDATE", {detail: new Array<Player>()})
+            );
+            Notifications.showSuccess({msg: "Laps cleared, 🏁🏁🏁 RACE 🏁🏁🏁"});
+        }
     }
 
     getActionsDom(): HTMLElement {
