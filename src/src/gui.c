@@ -191,6 +191,11 @@ static esp_err_t api_v1_get_handler(httpd_req_t *req)
         sft_ctf_stop(ctx);
         request_send_ok(req);
 
+    } else if (strcmp(req->uri, "/api/v1/rssi/update") == 0) {
+        jw_object(&jw) {
+            jw_kv_bool(&jw, "enable", ctx->send_rssi_updates);
+        }
+        request_send_ok(req);
     } else {
         request_send_error(req, "Uri %s not found", req->uri);
     }

@@ -1,5 +1,6 @@
 import uPlot, { Options, Axis, AlignedData } from "../../lib/uPlot.js";
 import van from "../../lib/van-1.5.2.js"
+import { Notifications } from "../../Notifications.js";
 import { Config, Lap, Page, Player, RssiData, RssiEvent } from "../../SimpleFpvTimer.js";
 import { $, enumToMap, format_ms } from "../../utils.js";
 //import uPlot  from "../../lib/uPlot.js"
@@ -188,27 +189,40 @@ export class SignalPage extends Page {
             });
     }
 
+    private async getRssiUpdate(func: CallableFunction) {
+        const url = "/api/v1/rssi/update";
+        const response = await fetch(url, {
+                method: 'GET',
+            });
+        if (!response.ok) {
+            Notifications.showError({msg: `Failed to get rssi update ${response.status}`})
+        } else {
+            const json = await response.json();
+            func(!!json.enable);
+        }
+    }
+
     getDom(): HTMLElement {
         if (!this.root) {
-            this.sendRssiUpdate(false);
+            const btn_rssi_update = button({class: "btn btn-secondary",
+                id: "btn_signal_pause",
+                type: "button",
+                onclick: () => {
+                    this.update_uplot = ! this.update_uplot;
+                    if (this.update_uplot) {
+                        this.sendRssiUpdate(true);
+                        this.onNextValues();
+                        $("btn_signal_pause").replaceChildren(svg_pause());
+                    } else {
+                        this.sendRssiUpdate(false);
+                        $("btn_signal_pause").replaceChildren(svg_play());
+                    }
+                }},
+                svg_play()
+            );
             this.root = div(
                 div({class: "input-group flex-nowrap"},
-                    button({class: "btn btn-secondary",
-                        id: "btn_signal_pause",
-                        type: "button",
-                        onclick: () => {
-                            this.update_uplot = ! this.update_uplot;
-                            if (this.update_uplot) {
-                                this.sendRssiUpdate(true);
-                                this.onNextValues();
-                                $("btn_signal_pause").replaceChildren(svg_pause());
-                            } else {
-                                this.sendRssiUpdate(false);
-                                $("btn_signal_pause").replaceChildren(svg_play());
-                            }
-                        }},
-                        svg_play()
-                    ),
+                    btn_rssi_update,
                     select({class: "form-select", id: "select_signal_duration",
                         onchange: () => {
                             var i = $("select_signal_duration") as HTMLSelectElement;
@@ -234,6 +248,11 @@ export class SignalPage extends Page {
                     )
                 )
             );
+            this.getRssiUpdate((enabled: boolean) => {
+                console.debug("Enable: " + enabled);
+                this.update_uplot = enabled;
+                btn_rssi_update.replaceChildren(enabled ? svg_pause(): svg_play())
+            })
         }
         return this.root;
     }
