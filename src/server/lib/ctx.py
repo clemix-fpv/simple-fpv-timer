@@ -203,5 +203,5 @@ class Ctx:
         return {'status': 'ok', 'msg': ''}
 
     @race_only
-    def onRaceClearLaps(self):
-        self.race.startRace(30000)
+    def onRaceClearLaps(self, offset):
+        self.race.startRace(offset)
