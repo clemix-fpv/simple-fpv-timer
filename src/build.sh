@@ -92,7 +92,7 @@ if [ $need_build -eq 1 ]; then
     #     . ~/.platformio/packages/framework-espidf/ &&
     #
     $pio run -t compiledb &&
-    $pio run -t upload  --upload-port $port &&
+    $pio run -t update_fw  --upload-port $port &&
     touch $me &&
     monitor
 else

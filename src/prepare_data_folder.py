@@ -121,7 +121,47 @@ const struct static_files STATIC_FILES[] = {
         shutil.rmtree(tmp_dir)
 
 
+proj_dir = env.get("PROJECT_DIR")
+env.AddCustomTarget(
+    name="js_app",
+    dependencies=None,
+    actions=["cd {}/js && esbuild src/app.ts --bundle --outfile=../data_src/app.js --minify --target=esnext --sourcemap".format(proj_dir)],
+    title="esbuild src/app.ts",
+    description="esbuild src/app.ts",
+    always_build=True,
+)
 
-env.AddPreAction("${BUILD_DIR}/src/gui.c.o", prepare_www_files)
-env.AddPreAction("*", prepare_www_files)
-#env.AddPreAction("program", prepare_www_files)
+env.AddCustomTarget(
+    name="static_files_h",
+    dependencies=["js_app"],
+    actions=prepare_www_files,
+    title="Generate Header",
+    description="Generates a header file static_files.h",
+    always_build=True,
+)
+
+# forward option --upload-port
+up_port = env.get('UPLOAD_PORT')
+if up_port is None:
+    up_port = ""
+else:
+    up_port = "--upload-port {}".format(up_port)
+
+
+env.AddCustomTarget(
+    name="update_fw",
+    dependencies=["static_files_h"],
+    actions=["pio run -t upload {}".format(up_port)],
+    title="Update firmware",
+    description="Do what ever is needed and update the ESP32",
+    always_build=False,
+)
+
+env.AddCustomTarget(
+    name="js_server",
+    dependencies=None,
+    actions=["cd {}/js && esbuild src/ctrld.ts --bundle --outfile=../server/www/ctrld.js --minify --target=esnext --sourcemap".format(proj_dir)],
+    title="esbuild src/ctrld.ts",
+    description="esbuild src/ctrld.ts",
+    always_build=True,
+)
