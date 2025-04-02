@@ -90,6 +90,7 @@ struct config_meta {
 
 void macaddr_from_str(unsigned char*, const char*);
 
+esp_err_t cfg_data_set_param(config_data_t* data, const char *name, const char *value);
 esp_err_t cfg_set_param(struct config*, const char*, const char*);
 esp_err_t cfg_verify(struct config*);
 esp_err_t cfg_save(struct config*);

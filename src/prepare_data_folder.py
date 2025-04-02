@@ -8,6 +8,7 @@ import shutil
 from pathlib import Path, PurePosixPath
 import glob
 import subprocess
+import json
 
 def prepare_www_files(source, target, env):
 
@@ -121,6 +122,24 @@ const struct static_files STATIC_FILES[] = {
         shutil.rmtree(tmp_dir)
 
 
+def load_default_config(source, target, env):
+    proj_dir = Path(env.get("PROJECT_DIR"))
+    config_file = os.path.join(proj_dir, 'config.json')
+    dst_file = os.path.join(proj_dir, 'src', 'config_default.c')
+    default_cfg_json = {}
+    if os.path.isfile(config_file):
+        with open(config_file, 'r') as f:
+            default_cfg_json = json.load(f)
+
+
+    with open(dst_file, 'w') as fdst:
+        fdst.write("#include <config_default.h>\n\n\n")
+        fdst.write("void cfg_default_set(config_data_t *cfg){\n")
+        for key, value in default_cfg_json.items():
+            fdst.write('  cfg_data_set_param(cfg, "{}", "{}");\n'.format(key, value))
+        fdst.write("}")
+
+
 proj_dir = env.get("PROJECT_DIR")
 env.AddCustomTarget(
     name="js_app",
@@ -140,6 +159,15 @@ env.AddCustomTarget(
     always_build=True,
 )
 
+env.AddCustomTarget(
+    name="default_config_c",
+    dependencies=["js_app"],
+    actions=load_default_config,
+    title="Create default config",
+    description="Generates config_default.c",
+    always_build=True,
+)
+
 # forward option --upload-port
 up_port = env.get('UPLOAD_PORT')
 if up_port is None:
@@ -150,7 +178,7 @@ else:
 
 env.AddCustomTarget(
     name="update_fw",
-    dependencies=["static_files_h"],
+    dependencies=["default_config_c"],
     actions=["pio run -t upload {}".format(up_port)],
     title="Update firmware",
     description="Do what ever is needed and update the ESP32",

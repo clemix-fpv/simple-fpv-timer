@@ -13,3 +13,5 @@ __pycache__
 src/server/config.json
 tools/config.json
 src/.cache
+src/src/config_default.c
+src/config.json

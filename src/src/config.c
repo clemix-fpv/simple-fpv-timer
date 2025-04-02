@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <time.h>
 #include "config.h"
+#include "config_default.h"
 #include "esp_err.h"
 #include "lwip/ip4_addr.h"
 #include "nvs.h"
@@ -165,6 +166,8 @@ static void cfg_data_init(struct config_data *eeprom)
     eeprom->game_mode = CFG_GAME_MODE_RACE;
     eeprom->led_num = 25;
     eeprom->ctrl_port = 80;
+
+    cfg_default_set(eeprom);
 }
 
 void cfg_generate_random_ssid(char *buf, size_t len)
@@ -232,31 +235,31 @@ esp_err_t cfg_save(struct config *cfg)
     return err;
 }
 
-esp_err_t cfg_set_param(struct config* cfg, const char *name, const char *value)
+esp_err_t cfg_data_set_param(config_data_t* data, const char *name, const char *value)
 {
     const struct config_meta* cm = config_meta;
     ESP_LOGI(TAG, "%s %s: '%s'", __func__, name, value);
     for(; cm->name != NULL; cm++) {
         if (strcmp(cm->name, name) == 0) {
             if (cm->type == UINT32) {
-                *(uint32_t*)((unsigned char*)&cfg->eeprom + cm->offset) = (uint32_t) atoi(value);
+                *(uint32_t*)((unsigned char*)data + cm->offset) = (uint32_t) atoi(value);
             } else if (cm->type == UINT16) {
-                *(uint16_t*)((unsigned char*)&cfg->eeprom + cm->offset) = (uint16_t) atoi(value);
+                *(uint16_t*)((unsigned char*)data + cm->offset) = (uint16_t) atoi(value);
             } else if (cm->type == MACADDR) {
-                macaddr_from_str((unsigned char*)&cfg->eeprom + cm->offset, value);
+                macaddr_from_str((unsigned char*)data + cm->offset, value);
 
             } else if (cm->type == IPV4) {
                 ip4_addr_t tmp;
                 ip4addr_aton(value, &tmp);
-                *(ip4_addr_t*)((unsigned char*)&cfg->eeprom + cm->offset) = tmp;
+                *(ip4_addr_t*)((unsigned char*)data + cm->offset) = tmp;
 
             } else if (cm->type == STRING) {
                 size_t len = strlen(value);
                 if (len < cm->size) {
-                    memcpy((char*)&cfg->eeprom + cm->offset, value, len);
-                    memset((char*)&cfg->eeprom + cm->offset + len, 0, cm->size - len);
+                    memcpy((char*)data + cm->offset, value, len);
+                    memset((char*)data + cm->offset + len, 0, cm->size - len);
                 } else {
-                    memset((char*)&cfg->eeprom + cm->offset, 0, cm->size);
+                    memset((char*)data + cm->offset, 0, cm->size);
                 }
             } else {
                 return ESP_ERR_INVALID_ARG;
@@ -265,6 +268,11 @@ esp_err_t cfg_set_param(struct config* cfg, const char *name, const char *value)
         }
     }
     return ESP_ERR_INVALID_ARG;
+}
+
+esp_err_t cfg_set_param(struct config* cfg, const char *name, const char *value)
+{
+    return cfg_data_set_param(&cfg->eeprom, name, value);
 }
 
 void macaddr_from_str(unsigned char *dst, const char * value)
