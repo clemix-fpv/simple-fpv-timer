@@ -157,7 +157,7 @@ def handle_api_v1_clear_laps(json=JSONBody()):
 @request_map("/api/v1/player/connect", method=["POST"])
 def handle_api_v1_player_connect(json=JSONBody()):
 
-    if (ctx.addNode(json["ip4"], json["name"], json["player"] or "")):
+    if (ctx.addNode(json["ip4"], json["name"] or json["player"] or "")):
         return {'status': "ok", 'msg': "Node added!"}
     else:
         return {'status': "error", 'msg': "Failed to add Node"}

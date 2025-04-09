@@ -65,10 +65,10 @@ class Ctx:
 
         if self.getGameMode() == GameMode.CTF:
             if self.ctf.addNode(node):
-                self.sendRssiConfigCTF(node.ip4)
+                self.sendRssiConfigCTF(node.ipaddr)
 
         elif self.getGameMode() == GameMode.RACE:
-            if self.race.addPlayer(node.ip4, node.name):
+            if self.race.addPlayer(node.ipaddr, node.name):
                 self.updateNodes()
 
         return True
@@ -174,7 +174,7 @@ class Ctx:
             self.ctf.onUpdate(json)
         except CTFConfigDoesNotMatch as e:
             print("CTFConfigDoesNotMatch:" + e.ipv4)
-            self.sendRssiConfig(e.ipv4)
+            self.sendRssiConfigCTF(e.ipv4)
             return {'status': 'error', 'msg': 'Config invalid'}
         except CTFNodeNotFound as e:
             print("CTFNodeNotFound:" + e.ipv4)
