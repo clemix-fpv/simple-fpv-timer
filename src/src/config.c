@@ -235,6 +235,31 @@ esp_err_t cfg_save(struct config *cfg)
     return err;
 }
 
+int parse_int(const char *str) {
+
+    long int res = 0;
+
+    if (str == NULL || *str == '\0')
+        return 0;
+
+    errno = 0;
+    if (str[0] == '#' && strlen(str) == 7) {
+        res = strtol(str + 1, NULL, 16);
+
+    } else if (str[0] == '0' && (str[1] == 'x' || str[1] == 'X')) {
+        res = strtol(str + 2, NULL, 16);
+
+    } else {
+        res = atoi(str);
+    }
+
+    if (errno == ERANGE || res > INT_MAX || res < INT_MIN) {
+        // Handle overflow/underflow
+        return 0;
+    }
+    return res;
+}
+
 esp_err_t cfg_data_set_param(config_data_t* data, const char *name, const char *value)
 {
     const struct config_meta* cm = config_meta;
@@ -242,9 +267,9 @@ esp_err_t cfg_data_set_param(config_data_t* data, const char *name, const char *
     for(; cm->name != NULL; cm++) {
         if (strcmp(cm->name, name) == 0) {
             if (cm->type == UINT32) {
-                *(uint32_t*)((unsigned char*)data + cm->offset) = (uint32_t) atoi(value);
+                *(uint32_t*)((unsigned char*)data + cm->offset) = (uint32_t) parse_int(value);
             } else if (cm->type == UINT16) {
-                *(uint16_t*)((unsigned char*)data + cm->offset) = (uint16_t) atoi(value);
+                *(uint16_t*)((unsigned char*)data + cm->offset) = (uint16_t) parse_int(value);
             } else if (cm->type == MACADDR) {
                 macaddr_from_str((unsigned char*)data + cm->offset, value);
 

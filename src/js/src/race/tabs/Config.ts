@@ -229,9 +229,13 @@ export class ConfigColorElement extends ConfigElement {
     public buildHtmlElement() {
         var value = "#000000";
         var v = this.value || 0;
+        const regex = /^#[0-9a-fA-F]{6}$/;
 
-        if (!Number.isNaN(v))
+        if (regex.test(v as string)) {
+            value = v as string;
+        } else if (!Number.isNaN(v)) {
             value = numberToColor(v as number);
+        }
 
         return div({class: "form-group"},
             fieldset(
