@@ -9,6 +9,12 @@ from pathlib import Path, PurePosixPath
 import glob
 import subprocess
 import json
+import re
+
+def remove_comments_regex(text):
+    text = re.sub(r'//.*', '', text)
+    text = re.sub(r'/\*[\s\S]*?\*/', '', text)
+    return text
 
 def prepare_www_files(source, target, env):
 
@@ -129,8 +135,8 @@ def load_default_config(source, target, env):
     default_cfg_json = {}
     if os.path.isfile(config_file):
         with open(config_file, 'r') as f:
-            default_cfg_json = json.load(f)
-
+            content = remove_comments_regex(f.read())
+            default_cfg_json = json.loads(content)
 
     with open(dst_file, 'w') as fdst:
         fdst.write("#include <config_default.h>\n\n\n")

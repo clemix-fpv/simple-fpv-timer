@@ -1,7 +1,7 @@
 {
   "rssi[0].name": "PLAYER1",
   "rssi[0].freq": 5658,
-  "rssi[0].peak": 900,
+  "rssi[0].peak": 1100,
   "rssi[0].filter": 60,
   "rssi[0].offset_enter": 80,
   "rssi[0].offset_leave": 70,
@@ -71,17 +71,50 @@
   "rssi[7].calib_max_lap_count": 3,
   "rssi[7].calib_min_rssi_peak": 600,
   "rssi[7].led_color": 255,
+
+  // ELRS/OSD settings
   "elrs_uid": "0,0,0,0,0,0",
+  // X and Y position of the string
   "osd_x": 0,
   "osd_y": 0,
+  // The OSD string printf like format specifier
+  //   %L   The current number of labs
+  //   %tms Time of current lab in milliseconds
+  //   %ts  Time of current lab in seconds
+  //   %tm  Time of current lab in seconds
+  //   %dms Delta to last lab in milliseconds
+  //   %ds  Delta to last lab in seconds
+  //   %dm  Delta to last lab in minutes
+  // Default give a format like " 2: 20.66 (+    2.02)"
   "osd_format": "%2L: %5.2ts(%6.2ds)",
-  "wifi_mode": 0, /* 0=AP, 1=STA */
+
+  // WIFI settings
+  // wifi_mode is the operation mode
+  //   0=AP (AccessPoint with captive portal and DHCP-Server)
+  //   1=STA (use DHCP to request an IP)
+  "wifi_mode": 0,
   "ssid": "simple-fpv-timer-00",
+  // if the passphrase is empty, an OPEN wifi is used
   "passphrase": "",
+
+
+  // Node settings
+  // node_name is used to identify the node on the controller
   "node_name": "esp32",
-  "node_mode": 0, /* 0=Controller, 1=Client */
+
+  // The node_mode specify in which mode this node is running.
+  //   0=Controller (other esp's can connect to it)
+  //   1=Client (use ctrl_ipv4/cltr_port to connect to the controller)
+  "node_mode": 0,
   "ctrl_ipv4": "192.168.2.1",
-  "game_mode": 0, /* 0=RACE, 1=CTF, 2=SPECTRUM */
-  "led_num": 25,
-  "ctrl_port": 9090
+  "ctrl_port": 9090,
+
+  // The game mode specify the operation mode (should match with the controller)
+  //   0=RACE
+  //   1=CTF
+  //   2=SPECTRUM
+  "game_mode": 0,
+
+  // Number of led's on the LED-Stribe which is connected
+  "led_num": 25
 }
