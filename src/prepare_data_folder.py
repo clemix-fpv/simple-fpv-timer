@@ -161,7 +161,7 @@ env.AddCustomTarget(
 
 env.AddCustomTarget(
     name="default_config_c",
-    dependencies=["js_app"],
+    dependencies=["static_files_h"],
     actions=load_default_config,
     title="Create default config",
     description="Generates config_default.c",
