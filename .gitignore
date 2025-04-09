@@ -15,3 +15,4 @@ tools/config.json
 src/.cache
 src/src/config_default.c
 src/config.json
+src/server/www/ctrld.js*
