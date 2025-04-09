@@ -53,7 +53,7 @@ class Ctx:
                 return node
         return None
 
-    def addNode(self, ip4, name, player):
+    def addNode(self, ip4, name):
 
         node = self.findNode(ip4)
         if node is None:
@@ -65,10 +65,10 @@ class Ctx:
 
         if self.getGameMode() == GameMode.CTF:
             if self.ctf.addNode(node):
-                self.sendRssiConfigCTF(ip4)
+                self.sendRssiConfigCTF(node.ip4)
 
         elif self.getGameMode() == GameMode.RACE:
-            if self.race.addPlayer(ip4, player):
+            if self.race.addPlayer(node.ip4, node.name):
                 self.updateNodes()
 
         return True
@@ -126,14 +126,13 @@ class Ctx:
 
     def save_config(self, json):
         for key in json:
-            print("KEY:{}".format(key))
             if key in self.config.data:
-                print("{} = {} of {}".format(key, json[key], type(json[key])))
                 if json[key].isnumeric():
                     self.config.data[key] = int(json[key])
                 else:
-                    json[key]
+                    self.config.data[key] = json[key]
             else:
+                print("ERROR: unknown KEY:{}".format(key))
                 return False
 
         self.config.save()
