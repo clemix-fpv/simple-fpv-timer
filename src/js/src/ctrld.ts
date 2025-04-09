@@ -11,6 +11,7 @@ import { NodePage } from "./NodePage.js"
 import { ConfigForm, ElrsConfigGroup, RaceConfigPage, VisibleElements, WifiConfigGroup } from "./race/tabs/Config.js"
 import { PlayersPage } from "./race/tabs/Players.js"
 import { LapsPage } from "./race/tabs/Laps.js"
+import { CtfScoreingPage } from "./ctf/tabs/CtfScoreing.js"
 
 const {button, div, pre,h3} = van.tags
 
@@ -122,6 +123,45 @@ class ServerRaceConfigPage extends Page {
     }
 }
 
+class ServerElementsCTF extends VisibleElements {
+    init(
+        cfg: Config,
+        hidden?: Array<string>,
+        hidden_groups?: Array<string>,
+        _rssi_min?:number,
+        _rssi_max?: number) {
+        super.init(cfg, hidden, hidden_groups, 1, 8);
+
+        this.rssi_label = "Teams";
+        this.hidden.push('node_name');
+        this.hidden.push('node_mode');
+        this.hidden.push('ctrl_ipv4');
+        this.hidden.push('ctrl_port');
+        this.hidden_groups.push(ElrsConfigGroup.name)
+        this.hidden_groups.push(WifiConfigGroup.name)
+    }
+}
+class ServerCTFConfigPage extends Page {
+    root: HTMLElement;
+
+    getDom(): HTMLElement {
+        if (! this.root) {
+            this.root = div();
+        }
+
+        var cfg = new Config();
+        cfg.update((cfg: Config) => {
+            this.root.replaceChildren(new ConfigForm(cfg, new ServerElementsCTF(cfg)).draw());
+        });
+        return this.root;
+    }
+
+    constructor() {
+        super("Config");
+    }
+}
+
+
 class ServerRaceMode extends Mode {
 
     constructor(name: string) {
@@ -135,10 +175,19 @@ class ServerRaceMode extends Mode {
     }
 }
 
-const raceMode = new ServerRaceMode ("Race");
-const ctfMode = new CaptureTheFlagMode("CTF");
-ctfMode.addPage(new NodePage());
-ctfMode.addPage(new DebugPage());
+class ServerCTFMode extends Mode {
+
+    constructor(name: string) {
+        super(name);
+        this.pages.push(new CtfScoreingPage());
+        this.pages.push(new ServerCTFConfigPage());
+        this.pages.push(new NodePage())
+        this.pages.push(new DebugPage())
+    }
+}
+
+const raceMode = new ServerRaceMode("Race");
+const ctfMode = new ServerCTFMode("CTF");
 
 const spectrumMode = new SpectrumMode("Spectrum");
 spectrumMode.addPage(new NodePage());
