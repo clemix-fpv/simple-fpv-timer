@@ -2,7 +2,7 @@ import uPlot, { Options, Axis, AlignedData } from "../../lib/uPlot.js";
 import van from "../../lib/van-1.5.2";
 import { Notifications } from "../../Notifications.js";
 import { Config, Ctf, Page } from "../../SimpleFpvTimer";
-import { $, format_ms, numberToColor } from "../../utils.js";
+import { $, format_ms, toColor } from "../../utils.js";
 
 
 const { h1, h3,label, form, select,input,img,fieldset, option, button, div, h5, pre, ul, li, span, a, table, thead, tbody, th, tr,td} = van.tags
@@ -174,7 +174,7 @@ export class CtfScoreingPage extends Page {
             const rssi = this.cfg.rssi[i];
 
             if (rssi.name == team_name) {
-                return numberToColor(rssi.led_color);
+                return toColor(rssi.led_color);
             }
         }
 

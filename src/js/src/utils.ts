@@ -78,6 +78,19 @@ export function nullOrUndef(variable: any, default_val: string): any | string {
     return variable;
 }
 
+export function toColor(value: number | string): string {
+    var v =  value || 0;
+    const regex = /^#[0-9a-fA-F]{6}$/;
+
+    if (regex.test(v as string))
+        return v as string;
+
+    if (!Number.isNaN(v))
+        return numberToColor(v as number);
+
+    return "#000000";
+}
+
 export function numberToColor(v: number): string {
     v = v as number;
     var r = (v & 0xff0000) >> 16;

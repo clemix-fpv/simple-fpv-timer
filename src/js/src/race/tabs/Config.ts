@@ -1,7 +1,7 @@
 import van from "../../lib/van-1.5.2.js"
 import { Notifications } from "../../Notifications.js";
 import { Config, ConfigGameMode, ConfigNodeMode, ConfigWIFIMode, Lap, Page, Player } from "../../SimpleFpvTimer.js";
-import { $, enumToMap, format_ms, hide, Images, numberToColor, show, suffix } from "../../utils.js";
+import { $, enumToMap, format_ms, hide, Images, toColor, show, suffix } from "../../utils.js";
 
 const { h3,label, form, select,input,img,fieldset, option, button, div, h5, pre, ul, li, span, a, table, thead, tbody, th, tr,td} = van.tags
 
@@ -227,15 +227,7 @@ export class ConfigPasswordElement extends ConfigElement {
 
 export class ConfigColorElement extends ConfigElement {
     public buildHtmlElement() {
-        var value = "#000000";
-        var v = this.value || 0;
-        const regex = /^#[0-9a-fA-F]{6}$/;
-
-        if (regex.test(v as string)) {
-            value = v as string;
-        } else if (!Number.isNaN(v)) {
-            value = numberToColor(v as number);
-        }
+        var value = toColor(this.value);
 
         return div({class: "form-group"},
             fieldset(
