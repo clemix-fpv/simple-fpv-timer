@@ -1,74 +1,113 @@
-import uPlot, { Options, Axis, AlignedData } from "../../lib/uPlot.js";
 import van from "../../lib/van-1.5.2";
 import { Notifications } from "../../Notifications.js";
 import { Config, Ctf, Page } from "../../SimpleFpvTimer";
 import { $, format_ms, toColor } from "../../utils.js";
 
 
-const { h1, h3,label, form, select,input,img,fieldset, option, button, div, h5, pre, ul, li, span, a, table, thead, tbody, th, tr,td} = van.tags
+const { canvas, input, button, div, span, a} = van.tags
+
+function toRad (x: number) {
+    return (x*Math.PI)/180;
+}
+
+function getLightColorHex(hexColor: string, factor = 0.6): string | null {
+    /**
+   * Takes a color in hex notation (e.g., "#RRGGBB") and returns a lighter version of it.
+   */
+    if (!hexColor || typeof hexColor !== 'string' || !hexColor.startsWith('#') || hexColor.length !== 7) {
+        return null;
+    }
+
+    try {
+        var ret = "#";
+        for (var i =0; i < 3; i++) {
+            const hex = hexColor.substring(i*2 + 1, i*2 + 3);
+            let num = parseInt(hex, 16);
+            num = Math.round(num + (255 - num) * factor);
+            ret += Math.max(0, Math.min(255, num)).toString(16).padStart(2, '0');
+        }
+        return ret;
+
+    } catch (error) {
+        return null;
+    }
+}
+
+function draw_pie_chart(canvas : HTMLCanvasElement, data:any) {
+    const { width, height } = canvas.getBoundingClientRect();
+    const context = canvas.getContext('2d');
+    const min = 180;
+    const max = 360;
+    const arc_max = max - min;
+
+    const x = width/2;
+    const y = height;
+    const radius = (width > height? height : width) -8;
+
+    var sum = 0;
+    for ( const d of data) {
+        sum += d.value;
+    }
+
+    var arc = min;
+    for ( const d of data) {
+        context.shadowBlur = 10;
+        context.shadowColor = "black";
+        const arc_add = (d.value / sum) * arc_max;
+        context.beginPath();
+        context.moveTo(x, y);
+        context.arc(x, y, radius, toRad(arc), toRad(arc + arc_add), false);
+        context.closePath();
+        context.lineWidth = 2;
+        context.stroke();
+
+        const gx = x + radius * Math.cos(toRad(arc + arc_add/2));
+        const gy = y + radius * Math.sin(toRad(arc + arc_add/2));
+        const grad = context.createLinearGradient(x,y, gx,gy);
+        grad.addColorStop(0, getLightColorHex(d.color, 0.8));
+        grad.addColorStop(1, d.color);
+
+        context.fillStyle = grad;
+        context.fill();
+        context.strokeStyle = d.color;
+        context.stroke()
+
+        for (var i = arc; i < arc + arc_add; i+= 5) {
+            context.beginPath();
+            context.moveTo(x, y);
+            const lx = x + radius * Math.cos(toRad(i));
+            const ly = y + radius * Math.sin(toRad(i));
+            context.lineTo(lx, ly);
+            context.shadowBlur = 0;
+            context.shadowColor = "";
+
+            const gx = x + radius * Math.cos(toRad(arc + arc_add/2));
+            const gy = y + radius * Math.sin(toRad(arc + arc_add/2));
+            const grad = context.createLinearGradient(x,y, gx,gy);
+            grad.addColorStop(1, getLightColorHex(d.color, 0.8));
+            grad.addColorStop(0.8, d.color);
+            grad.addColorStop(0.5, d.color);
+            grad.addColorStop(0, getLightColorHex(d.color, 0.8));
+            context.strokeStyle = grad;
+            context.stroke()
+        }
+        arc += arc_add;
+    }
+}
 
 export class CtfScoreingPage extends Page {
     root: HTMLElement;
-    private _uplot_div: HTMLElement;
+    private _canvas_div: HTMLCanvasElement;
     private _legend_div: HTMLElement;
     private _nodes_div: HTMLElement;
     private _buttons_div: HTMLElement;
-    uplot: uPlot;
     cfg: Config;
 
 
-    private plotGraph() {
-
-        // generate bar builder with 60% bar (40% gap) & 100px max bar width
-        const _bars80_100   = uPlot.paths.bars({size: [0.8, 100, 10]});
-
-        let opts = {
-            width: 800,
-            height: 400,
-            title: "Overall",
-            scales: {
-                x: {
-                    time: false,
-                },
-                y: {
-                    time: false,
-                    range: [0],
-                },
-            },
-            axes: [
-                {
-                    show: false,
-                },
-                {
-                    show: false,
-                    stroke: "#c7d0d9",
-                },
-            ],
-					legend: {
-                        show: false,
-					},
-            series: [
-                {
-                    show: false,
-                },
-                {
-                    label: "",
-                    stroke: "#000001",
-                    fill: "#000000A1",
-                    paths: uPlot.paths.bars({size: [0.8, 100]}),
-                }
-            ],
-        };
-
-        if (!this.uplot)
-            this.uplot = new uPlot(opts, [[0,1,3][0,0,0]], this.uplotDiv);
-        return this.uplot;
-    }
-
-    get uplotDiv() {
-        if (!this._uplot_div)
-            this._uplot_div = div();
-        return this._uplot_div;
+    get canvasDiv() {
+        if (!this._canvas_div)
+            this._canvas_div = canvas({width: 500, height:500});
+        return this._canvas_div;
     }
     get legendDiv() {
         if (!this._legend_div)
@@ -162,7 +201,7 @@ export class CtfScoreingPage extends Page {
             this.root = div(
                 this.buttonsDiv,
                 this.nodesDiv,
-                this.uplotDiv,
+                this.canvasDiv,
                 this.legendDiv,
             );
         }
@@ -203,45 +242,18 @@ export class CtfScoreingPage extends Page {
             }
         }
 
-        while(this.uplot.series.length > 1)
-            this.uplot.delSeries(1);
-
-        var i = 0;
-        const data = [];
-        data[0]=[];
+        var data = [];
         for (const team_name of sum.keys()) {
-            data[0][i] = i+1;
-            for (let j = 0; j < i; j++) {
-               data[j+1][i] = null;
-            }
-            data[i+1] = [];
-            for(let j=0; j < i; j++) {
-                data[i+1][j] = null;
-            }
-            data[i+1][i] = sum.get(team_name);
-
-            const color = this.colorByTeam(team_name);
-            this.uplot.addSeries( {
-                label: team_name,
-                stroke: color,
-                fill: color + "1A",
-                paths: uPlot.paths.bars({size: [0.8, 100]}),
-            })
-            i++;
+            data.push({
+                color: this.colorByTeam(team_name),
+                value: sum.get(team_name)
+            });
         }
-        data[0].unshift(0);
-        data[0].push(i+1);
-        for (let i = 1; i < data.length; i++) {
-            data[i].unshift(null);
-            data[i].push(null);
-        }
-
 
         console.debug(data);
-
-        this.uplot.setSize({width: this.getDom().offsetWidth, height: 400});
-        this.uplot.setScale("y", {min: 0, max: max});
-        this.uplot.setData(data)
+        this.canvasDiv.setAttribute("width", this.getDom().offsetWidth.toString());
+        this.canvasDiv.setAttribute("height", "400");
+        draw_pie_chart(this.canvasDiv, data);
 
         /* build legend */
 
@@ -280,7 +292,6 @@ export class CtfScoreingPage extends Page {
     constructor() {
         super("CTF");
         this.getDom();
-        this.plotGraph();
 
         document.addEventListener("SFT_CTF_UPDATE", (e: CustomEventInit<Ctf>) => {
             if (e.detail)
