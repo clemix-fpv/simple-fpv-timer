@@ -8,7 +8,7 @@
 #include "json.h"
 
 #define CFG_DEFAULT_OSD_FORMAT      "%2L: %5.2ts(%6.2ds)"
-#define CFG_VERSION                 "v009"
+#define CFG_VERSION                 "v010"
 #define CFG_NVS_NAMESPACE           "config"
 
 #define CFG_WIFI_MODE_AP            0
@@ -51,6 +51,7 @@ struct config_data {
     char magic[4];
 
     config_rssi_t rssi[CFG_MAX_FREQ];
+    int16_t rssi_offset;
 
     uint8_t elrs_uid[6];
     uint16_t osd_x;
@@ -80,7 +81,7 @@ struct config {
 
 
 
-enum config_type { UINT16, UINT32, MACADDR, STRING, IPV4};
+enum config_type { INT16, UINT16, UINT32, MACADDR, STRING, IPV4};
 struct config_meta {
     const char *name;
     enum config_type type;

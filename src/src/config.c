@@ -16,13 +16,23 @@
 #include "esp_random.h"
 
 static const char* TAG = "config";
-#define CFG_NVS_KEY "sft-config"
+#define CFG_NVS_KEY         "sft-config"
+#define CFG_NVS_RSSI_OFFSET "sft-rssi-off"
+#define CFG_NVS_NODE_NAME   "sft-node-name"
 
 #define config_meta_UINT16(var_name)          \
 {                                             \
 .name = #var_name,                        \
 .type = UINT16,                           \
 .size = sizeof(uint16_t),                 \
+.offset = offsetof(struct config_data, var_name) \
+}
+
+#define config_meta_INT16(var_name)          \
+{                                             \
+.name = #var_name,                        \
+.type = INT16,                           \
+.size = sizeof(int16_t),                 \
 .offset = offsetof(struct config_data, var_name) \
 }
 
@@ -80,6 +90,8 @@ const struct config_meta config_meta[] =
         config_meta_rssi(5),
         config_meta_rssi(6),
         config_meta_rssi(7),
+
+        config_meta_INT16(rssi_offset), /* The RSSI offset is applyied to all readed values. Used to make equal measurements above multiple nodes */
 
         config_meta_MACADDR(elrs_uid),
         config_meta_UINT16(osd_x),
@@ -140,10 +152,37 @@ esp_err_t cfg_verify(struct config * cfg)
     return ESP_OK;
 }
 
-static void cfg_data_init(struct config_data *eeprom)
+static void cfg_data_init(struct config_data *eeprom, nvs_handle_t nvs)
 {
+    size_t len = 0;
+    esp_err_t err;
+
     memset(eeprom, 0, sizeof(*eeprom));
     memcpy(eeprom->magic, CFG_VERSION, 4);
+
+    if ((err = nvs_get_i16(nvs, CFG_NVS_RSSI_OFFSET, &eeprom->rssi_offset)) != ESP_OK) {
+        eeprom->rssi_offset = 0;
+        ESP_LOGI(TAG, "[%d] FAILED RSSI_OFFSET %s", __LINE__, esp_err_to_name(err));
+    }
+    else {
+        ESP_LOGI(TAG, "[%d] OK RSSI_OFFSET : %"PRIi16, __LINE__, eeprom->rssi_offset);
+    }
+
+    if ((err = nvs_get_str(nvs, CFG_NVS_NODE_NAME, NULL, &len)) == ESP_OK) {
+        if (len > 0 && len <= sizeof(eeprom->node_name)) {
+            if ((err = nvs_get_str(nvs, CFG_NVS_NODE_NAME, eeprom->node_name, &len)) != ESP_OK){
+                eeprom->node_name[0] = 0;
+                ESP_LOGI(TAG, "[%d] FAILED NODE_NAME %s", __LINE__, esp_err_to_name(err));
+            } else {
+                ESP_LOGI(TAG, "[%d] OK NODE_NAME %s", __LINE__, eeprom->node_name);
+            }
+        } else {
+            ESP_LOGI(TAG, "[%d] FAILED NODE_NAME %s", __LINE__, esp_err_to_name(err));
+        }
+    } else {
+        ESP_LOGI(TAG, "[%d] FAILED NODE_NAME %s", __LINE__, esp_err_to_name(err));
+    }
+
     eeprom->rssi[0].freq = 5658; // R1
     // eeprom->freq = 5917; // R8
     eeprom->rssi[0].peak = 1100;
@@ -195,13 +234,13 @@ esp_err_t cfg_load(struct config *cfg)
         return err;
 
     if (required_size == 0) {
-        cfg_data_init(&cfg->eeprom);
+        cfg_data_init(&cfg->eeprom, my_handle);
         return ESP_OK;
     } else {
         cfg->eeprom = cfg_data;
         if (memcmp(cfg_data.magic, CFG_VERSION, sizeof(cfg_data.magic)) != 0) {
             ESP_LOGI(TAG, "Invalid magic %.4s", cfg_data.magic);
-            cfg_data_init(&cfg->eeprom);
+            cfg_data_init(&cfg->eeprom, my_handle);
         }
     }
     ESP_LOGI(TAG, "Loaded configuration:\n");
@@ -226,6 +265,18 @@ esp_err_t cfg_save(struct config *cfg)
         nvs_close(fd);
         return err;
     }
+
+    if ((err = nvs_set_i16 (fd, CFG_NVS_RSSI_OFFSET, cfg->eeprom.rssi_offset)) != ESP_OK) {
+        nvs_close(fd);
+        return err;
+    }
+    ESP_LOGI(TAG, "Saved: %s = %"PRIi16, CFG_NVS_RSSI_OFFSET, cfg->eeprom.rssi_offset);
+
+    if ((err = nvs_set_str (fd, CFG_NVS_NODE_NAME, cfg->eeprom.node_name)) != ESP_OK) {
+        nvs_close(fd);
+        return err;
+    }
+    ESP_LOGI(TAG, "Saved: %s = %s", CFG_NVS_NODE_NAME, cfg->eeprom.node_name);
 
     err = nvs_commit(fd);
 
@@ -270,6 +321,8 @@ esp_err_t cfg_data_set_param(config_data_t* data, const char *name, const char *
                 *(uint32_t*)((unsigned char*)data + cm->offset) = (uint32_t) parse_int(value);
             } else if (cm->type == UINT16) {
                 *(uint16_t*)((unsigned char*)data + cm->offset) = (uint16_t) parse_int(value);
+            } else if (cm->type == INT16) {
+                *(int16_t*)((unsigned char*)data + cm->offset) = (int16_t) parse_int(value);
             } else if (cm->type == MACADDR) {
                 macaddr_from_str((unsigned char*)data + cm->offset, value);
 
@@ -323,21 +376,30 @@ void cfg_dump(struct config * cfg)
     printf("CONFIGURATION ---- \n  magic: %.4s\n", eeprom->magic);
     for(; cm->name != NULL; cm++) {
         if (cm->type == UINT16) {
-            uint16_t eeprom_value = *(uint16_t*)((unsigned char*)eeprom + cm->offset);
-            uint16_t running_value = *(uint16_t*)((unsigned char*)running + cm->offset);
+            int16_t eeprom_value = *(int16_t*)((unsigned char*)eeprom + cm->offset);
+            int16_t running_value = *(int16_t*)((unsigned char*)running + cm->offset);
 
             printf("  %s: %"PRId16, cm->name, eeprom_value);
             if (eeprom_value != running_value)
                 printf(" [!= %"PRId16"]", running_value);
             printf("\n");
 
+        } else if (cm->type == UINT16) {
+            uint16_t eeprom_value = *(uint16_t*)((unsigned char*)eeprom + cm->offset);
+            uint16_t running_value = *(uint16_t*)((unsigned char*)running + cm->offset);
+
+            printf("  %s: %"PRIu16, cm->name, eeprom_value);
+            if (eeprom_value != running_value)
+                printf(" [!= %"PRIu16"]", running_value);
+            printf("\n");
+
         } else if (cm->type == UINT32) {
             uint32_t eeprom_value = *(uint32_t*)((unsigned char*)eeprom + cm->offset);
             uint32_t running_value = *(uint32_t*)((unsigned char*)running + cm->offset);
 
-            printf("  %s: %"PRId32, cm->name, eeprom_value);
+            printf("  %s: %"PRIu32, cm->name, eeprom_value);
             if (eeprom_value != running_value)
-                printf(" [!= %"PRId32"]", running_value);
+                printf(" [!= %"PRIu32"]", running_value);
             printf("\n");
         } else if (cm->type == IPV4) {
             ip4_addr_t eeprom_value = *(ip4_addr_t*)((unsigned char*)eeprom + cm->offset);
@@ -375,7 +437,7 @@ void cfg_dump(struct config * cfg)
 
 bool cfg_meta_json_encode(struct config_data * cfg, const struct config_meta *cm, json_writer_t *jw)
 {
-    if (cm->type == UINT16) {
+    if (cm->type == UINT16 || cm->type == INT16) {
         jw_kv_int(jw, cm->name, *(uint16_t*)((unsigned char*)cfg + cm->offset));
     } else if (cm->type == UINT32) {
         jw_kv_int32(jw, cm->name, *(uint32_t*)((unsigned char*)cfg + cm->offset));
