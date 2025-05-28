@@ -11,8 +11,6 @@ class RssiQ {
     freq: number;
     data: Array<RssiData>;
 
-    uplot_index: number;
-
     constructor(freq: number, data?: RssiData) {
         this.freq = freq;
         this.data = new Array();
@@ -96,14 +94,6 @@ export class SignalPage extends Page {
             case 7: return "#124511";
             default:
             return "red";
-        }
-    }
-
-    updateGraph(data): uPlot {
-        if (this.uplot) {
-            this.uplot.setData(data);
-            this.uplot.setSize({width: this.getDom().offsetWidth, height: 600});
-            return this.uplot;
         }
     }
 
@@ -257,35 +247,25 @@ export class SignalPage extends Page {
         return this.root;
     }
 
-    needSeriesUpdate(): boolean {
-        if (!this.uplot)
-            return false;
-
-
-        return this.uplot.series.length !=
-            this.dataq.length
-            + 1 /* X-axis */
-            + 3 /* peak,enter,leave*/;
-    }
-
-    updateSeries() {
+    private updateSeries(freqs: number[]) {
         if (!this.uplot)
             return ;
 
-        for (let i = 4; i < this.uplot.series.length; i++) {
-            this.uplot.delSeries(i);
-        }
+        if (this.uplot.series.length == freqs.length + 4)
+            return;
 
-        this.dataq.forEach((e,i) => {
-            e.uplot_index = i + 4;
+        while (this.uplot.series.length > 4)
+            this.uplot.delSeries(this.uplot.series.length -1);
+
+        for (let i = 0; i < freqs.length; i++) {
             this.uplot.addSeries({
-                        label: `freq:${e.freq}`,
+                        label: `freq:${freqs[i]}`,
                         stroke: this.getSeriesColor(i)
-                    }, e.uplot_index);
-        });
+                    }, i + 4);
+        }
     }
 
-    data2uplot(start_sec: number, end_sec:number) {
+    private data2uplot(start_sec: number, end_sec:number) {
 
         var peak = 0;
         var enter = 0;
@@ -296,6 +276,7 @@ export class SignalPage extends Page {
             leave = this.cfg.rssi[0].offset_leave/100 * peak;
         }
 
+        var freq = new Array<number>();
         var data = Array.from(
             [
                 [
@@ -327,27 +308,26 @@ export class SignalPage extends Page {
                 }
             });
             data.push(Array.from([time, rssi]));
+            freq.push(q.freq);
         });
 
         for (let i = 0; i < 3; i++) {
             data[i][0][0] = min_time;
             data[i][0][1] = max_time;
         }
-        return data;
+        return {data: data, freq: freq};
     }
 
     onNextValues() {
         if (!this.uplot)
             return;
 
-
-        if (this.needSeriesUpdate()) {
-            this.updateSeries();
-        }
-
         const now = Date.now()/1000;
         const data = this.data2uplot(now - this.max_seconds, now);
-        this.updateGraph(uPlot.join(data));
+
+        this.updateSeries(data.freq);
+        this.uplot.setData(uPlot.join(data.data));
+        this.uplot.setSize({width: this.getDom().offsetWidth, height: 600});
     }
 
     onRssiUpdate(ev: RssiEvent) {
