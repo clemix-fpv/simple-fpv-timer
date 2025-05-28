@@ -33,36 +33,52 @@ function getLightColorHex(hexColor: string, factor = 0.6): string | null {
     }
 }
 
-function draw_pie_chart(canvas : HTMLCanvasElement, data:any) {
+function draw_pie_chart(canvas : HTMLCanvasElement,
+        data: {color: string; ms:number; arc_start?:number, arc_end?:number}[]) {
     const { width, height } = canvas.getBoundingClientRect();
     const context = canvas.getContext('2d');
+    context.clearRect(0, 0, canvas.width, canvas.height);
+
     const min = 180;
     const max = 360;
     const arc_max = max - min;
 
-    const x = width/2;
-    const y = height;
-    const radius = (width > height? height : width) -8;
+    const radius = (width > height ? height : width) - 20;
+    const x = width / 2;
+    const y = height - 10;
 
-    var sum = 0;
-    for ( const d of data) {
-        sum += d.value;
-    }
+    console.debug(`w:${width} h:${height} r:${radius} x:${x} y:${y}`);
+
+    var sum_ms = 0;
+    data.forEach((e) => {sum_ms += e.ms });
 
     var arc = min;
     for ( const d of data) {
+        const arc_add = (d.ms / sum_ms) * arc_max;
+        d.arc_start = arc;
+        arc += arc_add;
+        d.arc_end = arc;
+    }
+    data.sort((a,b) => {
+        return a.ms - b.ms;
+    })
+
+
+    for ( const d of data) {
+        if (d.ms == 0)
+            continue;
+        var arc_mid = (d.arc_end - d.arc_start) /  2  + d.arc_start;
         context.shadowBlur = 10;
         context.shadowColor = "black";
-        const arc_add = (d.value / sum) * arc_max;
         context.beginPath();
         context.moveTo(x, y);
-        context.arc(x, y, radius, toRad(arc), toRad(arc + arc_add), false);
+        context.arc(x, y, radius, toRad(d.arc_start), toRad(d.arc_end), false);
         context.closePath();
         context.lineWidth = 2;
         context.stroke();
 
-        const gx = x + radius * Math.cos(toRad(arc + arc_add/2));
-        const gy = y + radius * Math.sin(toRad(arc + arc_add/2));
+        const gx = x + radius * Math.cos(toRad(arc_mid));
+        const gy = y + radius * Math.sin(toRad(arc_mid));
         const grad = context.createLinearGradient(x,y, gx,gy);
         grad.addColorStop(0, getLightColorHex(d.color, 0.8));
         grad.addColorStop(1, d.color);
@@ -72,7 +88,7 @@ function draw_pie_chart(canvas : HTMLCanvasElement, data:any) {
         context.strokeStyle = d.color;
         context.stroke()
 
-        for (var i = arc; i < arc + arc_add; i+= 5) {
+        for (var i = d.arc_start; i < d.arc_end; i+= 5) {
             context.beginPath();
             context.moveTo(x, y);
             const lx = x + radius * Math.cos(toRad(i));
@@ -81,8 +97,8 @@ function draw_pie_chart(canvas : HTMLCanvasElement, data:any) {
             context.shadowBlur = 0;
             context.shadowColor = "";
 
-            const gx = x + radius * Math.cos(toRad(arc + arc_add/2));
-            const gy = y + radius * Math.sin(toRad(arc + arc_add/2));
+            const gx = x + radius * Math.cos(toRad(arc_mid));
+            const gy = y + radius * Math.sin(toRad(arc_mid));
             const grad = context.createLinearGradient(x,y, gx,gy);
             grad.addColorStop(1, getLightColorHex(d.color, 0.8));
             grad.addColorStop(0.8, d.color);
@@ -91,7 +107,6 @@ function draw_pie_chart(canvas : HTMLCanvasElement, data:any) {
             context.strokeStyle = grad;
             context.stroke()
         }
-        arc += arc_add;
     }
 }
 
@@ -106,7 +121,7 @@ export class CtfScoreingPage extends Page {
 
     get canvasDiv() {
         if (!this._canvas_div)
-            this._canvas_div = canvas({width: 500, height:500});
+            this._canvas_div = canvas({width:800, height:400});
         return this._canvas_div;
     }
     get legendDiv() {
@@ -174,7 +189,6 @@ export class CtfScoreingPage extends Page {
         const url = "/api/v1/ctf/start";
         try{
             const data = {duration_ms: Number(duration_minutes) * 60 * 1000};
-            console.debug(data);
             const response = await fetch(url, {
                 method: 'POST',
                 headers: {
@@ -222,7 +236,6 @@ export class CtfScoreingPage extends Page {
 
     private onCtfUpdate(ctf: Ctf) {
 
-        console.debug(ctf);
 
         const sum = new Map();
 
@@ -243,47 +256,66 @@ export class CtfScoreingPage extends Page {
         }
 
         var data = [];
-        for (const team_name of sum.keys()) {
+        for (const team_name of Array.from(sum.keys()).sort()) {
             data.push({
                 color: this.colorByTeam(team_name),
-                value: sum.get(team_name)
+                ms: sum.get(team_name),
+                team: team_name
             });
         }
 
-        console.debug(data);
-        this.canvasDiv.setAttribute("width", this.getDom().offsetWidth.toString());
-        this.canvasDiv.setAttribute("height", "400");
+        var size = this.getDom().offsetWidth;
+        if (window.innerWidth < size) {
+            size = window.innerWidth;
+        }
+        var width = 800;
+        var height = 400;
+        if (size < 800) {
+            width = size;
+            height = width/2;
+        }
+        this.canvasDiv.setAttribute("width", width.toString());
+        this.canvasDiv.setAttribute("height", height.toString());
         draw_pie_chart(this.canvasDiv, data);
 
         /* build legend */
 
-        var d = div();
-        for (const [team_name, duration] of sum) {
-            var color = this.colorByTeam(team_name);
-            var style = `background-color: ${color}A1`;
-            d.append(
-                div({class: "card-text border rounded ", style: `margin: 3px; `},
-                    span({style: `${style}; font-weight: bold; border-right: 1px solid grey; margin: 0px 0px; padding:0 5px; min-width: 80px; display: inline-block; text-shadow: 1px 1px 1px black;`}, team_name),
-                    span({style: `padding: 0px 5px`}, format_ms(duration)))
-            );
-        }
-        this.legendDiv.replaceChildren(d);
+        var html_div = div({style: 'margin: auto auto;'});
+        data.sort((a, b)=>{return b.ms - a.ms})
 
-        var d = div({style: "margin:10px; display: block;"});
+        var rank = 1;
+        for (const elem of data) {
+            var style = `background-color: ${elem.color}A1`;
+            html_div.append(
+                div({class: "card-text border rounded ", style: `margin: 3px;`},
+                    span({style: `${style}; font-weight: bold; border-right: 1px solid grey; margin: 0px 0px; padding:0 5px; min-width: 120px; display: inline-block; text-shadow: 1px 1px 1px black;`},
+                    (rank == 1)? "🏆 " /* "&#127942;" || "&#129351;"*/ :
+                    (rank == 2)? "🥈 " /*"&#129352;"*/ :
+                    (rank == 3)? "🥉 ": "",
+                    elem.team
+                    ),
+                    span({style: `padding: 0px 5px`}, format_ms(elem.ms))),
+
+            );
+            rank++;
+        }
+        this.legendDiv.replaceChildren(html_div);
+
+        var html_div = div({style: "margin:10px; display: block;"});
         for(const node of ctf.nodes) {
-            color = "#eee";
+            var color = "#eee";
             if (node.current >= 0 && node.current < ctf.team_names.length) {
                 var team = ctf.team_names[node.current];
                 color = this.colorByTeam(team);
             }
 
-            d.append(
+            html_div.append(
                 span({class: "border rounded", style: `font-weight: bold; margin: 10px; padding: 10px; text-shadow: 1px 1px 1px black; background-color: ${color}A1`},
                     a({href:'http://'+ node.ipv4 , style: "color: #fff; font-weight: bold; text-decoration: none; text-shadow: 1px 1px 1px black;", target: "_blank"},node.name )
                 )
             );
         }
-        this.nodesDiv.replaceChildren(d);
+        this.nodesDiv.replaceChildren(html_div);
 
         this.updateButtonsDiv(ctf.time_left_ms);
     }
