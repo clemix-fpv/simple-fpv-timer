@@ -10,6 +10,7 @@ import glob
 import subprocess
 import json
 import re
+import time
 
 def remove_comments_regex(text):
     text = re.sub(r'//.*', '', text)
@@ -127,6 +128,11 @@ const struct static_files STATIC_FILES[] = {
         print('  Delete temproary dir {}'.format(tmp_dir))
         shutil.rmtree(tmp_dir)
 
+def format_value(text):
+    time_s = str(int(time.time()))
+    text = re.sub(r'\{\{time}}', time_s , str(text))
+    return text
+
 
 def load_default_config(source, target, env):
     proj_dir = Path(env.get("PROJECT_DIR"))
@@ -142,7 +148,7 @@ def load_default_config(source, target, env):
         fdst.write("#include <config_default.h>\n\n\n")
         fdst.write("void cfg_default_set(config_data_t *cfg){\n")
         for key, value in default_cfg_json.items():
-            fdst.write('  cfg_data_set_param(cfg, "{}", "{}");\n'.format(key, value))
+            fdst.write('  cfg_data_set_param(cfg, "{}", "{}");\n'.format(key, format_value(value)))
         fdst.write("}")
 
 

@@ -1,3 +1,9 @@
+// Dynamic values
+// ==============
+//
+// {{time}}  will be replaces with seconds since 1.1.1970
+//
+
 {
   "rssi[0].name": "PLAYER1",
   "rssi[0].freq": 5658,
@@ -100,7 +106,7 @@
 
   // Node settings
   // node_name is used to identify the node on the controller
-  "node_name": "esp32",
+  "node_name": "esp32-{{time}}",
 
   // The node_mode specify in which mode this node is running.
   //   0=Controller (other esp's can connect to it)
