@@ -11,6 +11,7 @@ import subprocess
 import json
 import re
 import time
+import hashlib
 
 def remove_comments_regex(text):
     text = re.sub(r'//.*', '', text)
@@ -138,14 +139,23 @@ def load_default_config(source, target, env):
     proj_dir = Path(env.get("PROJECT_DIR"))
     config_file = os.path.join(proj_dir, 'config.json')
     dst_file = os.path.join(proj_dir, 'src', 'config_default.c')
+    config_data_h = os.path.join(proj_dir, 'src', 'config_data.h')
     default_cfg_json = {}
+    config_magic = hashlib.md5(open(config_data_h,'rb').read()).hexdigest()[-8:]
+
     if os.path.isfile(config_file):
         with open(config_file, 'r') as f:
             content = remove_comments_regex(f.read())
             default_cfg_json = json.loads(content)
+        config_magic = hashlib.md5(open(config_file,'rb').read()).hexdigest()[-8:]
 
     with open(dst_file, 'w') as fdst:
         fdst.write("#include <config_default.h>\n\n\n")
+
+        fdst.write("const char* cfg_default_magic(){\n")
+        fdst.write("  return \"{}\";\n".format(config_magic))
+        fdst.write("}\n\n\n")
+
         fdst.write("void cfg_default_set(config_data_t *cfg){\n")
         for key, value in default_cfg_json.items():
             fdst.write('  cfg_data_set_param(cfg, "{}", "{}");\n'.format(key, format_value(value)))

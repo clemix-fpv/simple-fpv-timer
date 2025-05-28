@@ -158,7 +158,7 @@ static void cfg_data_init(struct config_data *eeprom, nvs_handle_t nvs)
     esp_err_t err;
 
     memset(eeprom, 0, sizeof(*eeprom));
-    memcpy(eeprom->magic, CFG_VERSION, 4);
+    memcpy(eeprom->magic, cfg_default_magic(), sizeof(eeprom->magic));
 
     if ((err = nvs_get_i16(nvs, CFG_NVS_RSSI_OFFSET, &eeprom->rssi_offset)) != ESP_OK) {
         eeprom->rssi_offset = 0;
@@ -238,7 +238,7 @@ esp_err_t cfg_load(struct config *cfg)
         return ESP_OK;
     } else {
         cfg->eeprom = cfg_data;
-        if (memcmp(cfg_data.magic, CFG_VERSION, sizeof(cfg_data.magic)) != 0) {
+        if (memcmp(cfg_data.magic, cfg_default_magic(), sizeof(cfg_data.magic)) != 0) {
             ESP_LOGI(TAG, "Invalid magic %.4s", cfg_data.magic);
             cfg_data_init(&cfg->eeprom, my_handle);
         }
