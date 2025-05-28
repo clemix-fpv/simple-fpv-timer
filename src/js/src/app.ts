@@ -55,14 +55,14 @@ class DebugPage extends Page {
         document.addEventListener("SFT_CONFIG_UPDATE", (e: CustomEventInit<Config>) => {
             this.cfg.replaceChildren(
                 h3("Config"),
-                pre(e.detail.toJsonString(2))
+                pre(JSON.stringify(e.detail, undefined, 2))
             );
         });
 
         document.addEventListener("SFT_CTF_UPDATE", (e: CustomEventInit<Ctf>) => {
             this.ctf.replaceChildren(
                 h3("Last CTF message:" + Date.now()),
-                pre(e.detail.toJsonString(2))
+                pre(JSON.stringify(e.detail, undefined, 2))
             );
         });
 
