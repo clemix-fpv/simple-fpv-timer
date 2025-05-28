@@ -39,6 +39,7 @@ typedef struct {
 
     rssi_t rssi_array[MAX_FREQ];
     uint16_t rssi_cnt;
+    int16_t rssi_offset;
     rssi_t *rssi;           /* pointer to current rssi_array[idx] */
 
     sft_event_rssi_update_t rssi_update_ev[MAX_FREQ];

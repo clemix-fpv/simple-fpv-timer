@@ -29,6 +29,8 @@ static void task_rssi_set_config(task_rssi_t *tsk, const config_data_t *cfg)
 
 
     tsk->rssi_cnt = 0;
+    tsk->rssi_offset = cfg->rssi_offset;
+
     for (int i=0; i< CFG_MAX_FREQ; i++) {
         rssi_t *rssi = &tsk->rssi_array[i];
         const config_rssi_t *cfg_rssi = &cfg->rssi[i];
@@ -293,9 +295,7 @@ void task_rssi( void * priv )
     sft_timer_t s1 = {0};
     uint32_t read_cnt = 0;
     millis_t ms;
-    int adc_raw = 0;
     int voltage = 0;
-    int freq_plan[8] = { 5658, 5695, 5732, 5769, 5806, 5843, 5880, 5917 };
 
     printf("rx5808 init\n");
     ESP_ERROR_CHECK(rx5808_init(&tsk->rx5808, PIN_NUM_MOSI,
@@ -312,7 +312,9 @@ void task_rssi( void * priv )
         timer_start(&loop, 5, NULL, NULL);
 
         read_cnt++;
-        rx5808_read_rssi(&tsk->rx5808, &adc_raw, &voltage);
+        rx5808_read_rssi(&tsk->rx5808, NULL, &voltage);
+        voltage += tsk->rssi_offset;
+
         ms = get_millis();
         task_rssi_process_rssi(tsk, &gate_blocked, voltage);
         task_rssi_collect_rssi(tsk, ms);
