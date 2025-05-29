@@ -326,6 +326,43 @@ esp_err_t sft_on_player_connect(ctx_t *ctx, ip4_addr_t ip, const char *name)
     }
 }
 
+void sft_send_players_update_to_gui(ctx_t *ctx)
+{
+    static const int buf_len = 1024;
+    char *buf;
+    json_writer_t jw;
+    player_t *player;
+
+    if (!(buf = malloc(buf_len))) {
+        ESP_LOGE(TAG, "Out of memory!");
+        return;
+    }
+    jw_init(&jw, buf, buf_len);
+
+    jw_object(&jw){
+        jw_kv_str(&jw, "type", "players");
+        jw_kv(&jw, "players"){
+            jw_array(&jw) {
+                for (int i = 0; i < MAX_PLAYER; i++) {
+                    player = &ctx->lc.players[i];
+                    if (strlen(player->name) == 0)
+                        continue;
+                    if (!sft_player_encode(player, &jw)) {
+                        ESP_LOGE(TAG, "Failed to encode player");
+                        goto out;
+                    }
+                }
+            }
+        }
+    }
+
+    if (!jw.error)
+        gui_send_all(ctx, buf);
+
+out:
+    free(buf);
+}
+
 struct lap_s* sft_player_add_lap(struct player_s *player,
         int id, int rssi, millis_t duration, millis_t abs_time)
 {
@@ -349,6 +386,7 @@ esp_err_t sft_on_player_lap(ctx_t *ctx, ip4_addr_t ip4, int id, int rssi, millis
 
     if (sft_player_add_lap(sft_player_get_or_create(&ctx->lc, ip4, NULL),
                                        id, rssi, duration, get_millis())) {
+        sft_send_players_update_to_gui(ctx);
         return ESP_OK;
     }
 
@@ -414,6 +452,8 @@ void sft_on_drone_passed_race(ctx_t *ctx, int freq, int rssi, millis_t abs_time_
 
             if (ctx->cfg.eeprom.node_mode == CFG_NODE_MODE_CHILD)
                 sft_send_new_lap(ctx, lap);
+            else
+                sft_send_players_update_to_gui(ctx);
 
             ESP_LOGI(TAG, "LAP[%d]: %llums rssi:%d", lap->id, lap->duration_ms, lap->rssi);
             if (cfg_has_elrs_uid(&cfg->eeprom)) {
