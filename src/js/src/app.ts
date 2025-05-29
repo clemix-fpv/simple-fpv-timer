@@ -16,6 +16,7 @@ class DebugPage extends Page {
     _cfg: HTMLElement;
     _rssi: HTMLElement;
     _ctf: HTMLElement;
+    _settings: HTMLElement;
 
     get cfg(): HTMLElement {
         if (!this._cfg) {
@@ -31,9 +32,38 @@ class DebugPage extends Page {
         return this._ctf ? this._ctf : (this._ctf = div("ctf"));
     }
 
+    private async update_settings() {
+        const url = "/api/v1/settings";
+            const response = await fetch(url, {
+                    method: 'GET',
+                });
+            if (!response.ok) {
+                Notifications.showError({msg: `Failed to get rssi update ${response.status}`})
+            } else {
+                    const json = await response.json();
+                    this._settings.replaceChildren(
+                        h3("/api/v1/settings (click for update)"),
+                        pre(JSON.stringify(json, undefined, 2))
+                    );
+            }
+
+    }
+
+    get settings(): HTMLElement {
+        if (!this._settings) {
+            this._settings = div({
+                onclick: () => {
+                    this.update_settings();
+                    }
+            }, h3("/api/v1/settings (click for update)"));
+        }
+        return this._settings;
+    }
+
     getDom(): HTMLElement {
         if (!this.root) {
             this.root = div(
+                this.settings,
                 this.cfg,
                 this.rssi,
             );
