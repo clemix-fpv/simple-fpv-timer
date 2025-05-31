@@ -1,3 +1,4 @@
+import { Notifications } from "./Notifications";
 
 export function format_ms_short(arg: number|string) {
 
@@ -98,6 +99,29 @@ export function numberToColor(v: number): string {
     var b = (v & 0x0000ff);
     return "#" + r.toString(16).padStart(2, '0') +
         g.toString(16).padStart(2,'0') + b.toString(16).padStart(2,'0');
+}
+
+/**
+ * on_success is a the callback function, which is called once the request was successful.
+ * The retrieved json is passed as first argument to this function.
+ *
+ * on_error is called when en error happen, and get's the full response object.
+ */
+export async function getJSON(url: string,
+    on_success: CallableFunction,
+    on_error?: CallableFunction) {
+
+        const response = await fetch(url);
+        if (!response.ok) {
+            if (on_error) {
+                on_error(response);
+            } else {
+                Notifications.showError({msg: `Failed to request JSON from ${url} status:${response.status}`});
+            }
+        } else {
+            const json = await response.json();
+            on_success(json);
+        }
 }
 
 
