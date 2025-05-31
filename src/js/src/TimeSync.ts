@@ -1,4 +1,5 @@
 import { Notifications } from "./Notifications";
+import { nullOrUndef } from "./utils";
 
 interface TimeSyncData {
     client: Array<number>;
@@ -8,6 +9,7 @@ interface TimeSyncData {
 export class TimeSync {
     static #instance: TimeSync;
     offset: number;
+    on_ready: CallableFunction;
 
     constructor() {
 
@@ -22,7 +24,15 @@ export class TimeSync {
     }
 
     static getOffset() {
+        if (nullOrUndef(TimeSync.instance().offset, null) === null) {
+            throw new Error("Unable to get TimeSync.offset - maybe called to early?!")
+        }
         return TimeSync.instance().offset;
+    }
+
+    static sync(on_ready: CallableFunction) {
+        TimeSync.instance().on_ready = on_ready;
+        TimeSync.instance().sync_time(null);
     }
 
     sync_time_finish(data: TimeSyncData)
@@ -73,6 +83,9 @@ export class TimeSync {
                     this.sync_time(json);
                 } else {
                     this.offset = this.sync_time_finish(json);
+                    if (this.on_ready) {
+                        this.on_ready(this.offset);
+                    }
                     return this.offset;
                 }
             }

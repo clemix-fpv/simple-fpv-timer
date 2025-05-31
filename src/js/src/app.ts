@@ -101,26 +101,27 @@ class DebugPage extends Page {
 }
 
 
+const _ = new Notifications();
 
-const raceMode = new RaceMode ("Race");
-raceMode.addPage(new DebugPage());
+TimeSync.sync((offset) => {
 
-const ctfMode = new CaptureTheFlagMode("CTF");
-ctfMode.addPage(new DebugPage());
+    console.debug("TimeSync offset: " + offset);
 
-const spectrumMode = new SpectrumMode("CTF");
-spectrumMode.addPage(new DebugPage());
+    const raceMode = new RaceMode ("Race");
+    raceMode.addPage(new DebugPage());
 
-const app = new SimpleFpvTimer();
-app.addMode(ConfigGameMode.RACE, raceMode);
-app.addMode(ConfigGameMode.CTF, ctfMode);
-app.addMode(ConfigGameMode.SPECTRUM, spectrumMode);
+    const ctfMode = new CaptureTheFlagMode("CTF");
+    ctfMode.addPage(new DebugPage());
 
-van.add(document.body, app.getDom());
-const notifications = new Notifications();
+    const spectrumMode = new SpectrumMode("SPECTRUM");
+    spectrumMode.addPage(new DebugPage());
 
-TimeSync.instance().sync_time(null);
-setTimeout(() => {
-    console.debug("TimeSync offset: " + TimeSync.getOffset());
-    }, 2000);
+
+    const app = new SimpleFpvTimer();
+    app.addMode(ConfigGameMode.RACE, raceMode);
+    app.addMode(ConfigGameMode.CTF, ctfMode);
+    app.addMode(ConfigGameMode.SPECTRUM, spectrumMode);
+
+    van.add(document.body, app.getDom());
+});
 
