@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
+#include "esp_timer.h"
 #include <stdbool.h>
 #include <inttypes.h>
 
 bool is_zero_mac(unsigned char *mac);
 
+#define OSD_MAX_SEND_COUNT 5
+#define OSD_SEND_WAIT_MS 600
 typedef struct {
         unsigned char peer_addr[6];
         char send_buffer[64];
@@ -13,6 +16,8 @@ typedef struct {
         int last_length;
         uint16_t x;
         uint16_t y;
+        int snd_count;
+        esp_timer_handle_t snd_timer;
 } osd_t;
 
 void osd_init(osd_t *, unsigned char *peer);

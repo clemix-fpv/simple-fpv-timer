@@ -2,6 +2,7 @@
 
 #include <stdlib.h>
 #include "osd.h"
+#include "esp_timer.h"
 #include "msp.h"
 #include <esp_now.h>
 #include <esp_log.h>
@@ -9,6 +10,9 @@
 
 static const char * TAG = "OSD";
 static msp_packet_t msp_pkt;
+
+
+static void osd_on_send_timer(void* arg);
 
 bool is_zero_mac(unsigned char *mac)
 {
@@ -19,6 +23,14 @@ void osd_init(osd_t *osd, unsigned char *peer)
 {
     osd->x = osd->y = osd->last_length = 0;
     memcpy(osd->peer_addr, peer, 6);
+
+    const esp_timer_create_args_t timer_args = {
+        .callback = &osd_on_send_timer,
+        .arg = (void*) osd,
+        .name = "sft-send-timer"
+    };
+    ESP_ERROR_CHECK(esp_timer_create(&timer_args, &osd->snd_timer));
+
 }
 
 void osd_set_peer(osd_t* osd, unsigned char *peer)
@@ -244,6 +256,8 @@ bool osd_send_lap(osd_t* osd,long lap, unsigned long long duration, long long di
 {
     int len, i = 0;
 
+    esp_timer_stop(osd->snd_timer);
+
     if (is_zero_mac(osd->peer_addr))
         return false;
 
@@ -252,9 +266,6 @@ bool osd_send_lap(osd_t* osd,long lap, unsigned long long duration, long long di
         ESP_LOGI(TAG, "[ERROR] Failed to format %s", osd->format);
         return false;
     }
-    ESP_LOGI(TAG, "[INFO] sending to osd (%s | %ld, %lld, %lld): %s", osd->format,
-            lap, duration, diff, osd->send_buffer);
-
     len = strlen(osd->send_buffer);
     if (len < osd->last_length) {
         for (i = len; i < osd->last_length && i < sizeof(osd->send_buffer) -1; i++){
@@ -263,8 +274,24 @@ bool osd_send_lap(osd_t* osd,long lap, unsigned long long duration, long long di
         osd->send_buffer[i] = '\0';
     }
     osd->last_length = len;
-    osd_display_text(osd, osd->x, osd->y, osd->send_buffer);
+
+    osd->snd_count = 0;
+    osd_on_send_timer(osd);
+
     return true;
 }
 
+static void osd_on_send_timer(void* arg)
+{
+    osd_t *osd = (osd_t*) arg;
 
+    osd->snd_count++;
+    ESP_LOGI(TAG, "[INFO] send %d of %d to osd(%"PRIu16",%"PRIu16"): %s",
+             osd->snd_count, OSD_MAX_SEND_COUNT,
+             osd->x, osd->y, osd->send_buffer);
+
+    osd_display_text(osd, osd->x, osd->y, osd->send_buffer);
+
+    if (osd->snd_count < OSD_MAX_SEND_COUNT)
+        esp_timer_start_once(osd->snd_timer, OSD_SEND_WAIT_MS * 1000);
+}
