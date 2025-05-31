@@ -393,13 +393,13 @@ esp_err_t sft_on_player_lap(ctx_t *ctx, ip4_addr_t ip4, int id, int rssi, millis
     return ESP_ERR_NO_MEM;
 }
 
-lap_t * sft_player_get_fastes_lap(player_t *p)
+lap_t * sft_player_get_fastes_lap(player_t *p, lap_t *exclude)
 {
     lap_t *lap = p->laps;
     lap_t *fastes = NULL;
 
     for (int i = 0; i < MAX_LAPS; i++, lap++) {
-        if (lap->rssi == 0)
+        if (lap->rssi == 0 || lap == exclude)
             continue;
         if (!fastes)
             fastes = lap;
@@ -458,10 +458,12 @@ void sft_on_drone_passed_race(ctx_t *ctx, int freq, int rssi, millis_t abs_time_
             ESP_LOGI(TAG, "LAP[%d]: %llums rssi:%d", lap->id, lap->duration_ms, lap->rssi);
             if (cfg_has_elrs_uid(&cfg->eeprom)) {
 
-                struct lap_s *fastes = sft_player_get_fastes_lap(&lc->players[3]);
-                long fastes_duration = fastes ? fastes->duration_ms : 0;
-                fastes = NULL;
-                long diff = (long)lap->duration_ms - fastes_duration;
+                long diff = 0;
+                struct lap_s *fastes;
+
+                if ((fastes = sft_player_get_fastes_lap(&lc->players[0], lap))) {
+                    diff = (long)lap->duration_ms - (long)fastes->duration_ms;
+                }
                 osd_send_lap(&ctx->osd, lap->id, lap->duration_ms, diff);
             }
 
