@@ -1,6 +1,6 @@
 import van from "../../lib/van-1.5.2.js"
 import { Notifications } from "../../Notifications.js";
-import { Lap, Page, Player } from "../../SimpleFpvTimer.js";
+import { Lap, Page, Player, SimpleFpvTimer } from "../../SimpleFpvTimer.js";
 import { $, enumToMap, format_ms } from "../../utils.js";
 
 const { h3,label, select, option, button, div, h5, input, pre, ul, li, span, a, table, thead, tbody, th, tr,td} = van.tags
@@ -16,14 +16,6 @@ enum RaceMode {
     FastesTwoContinousLaps,
     FastesThreeContinousLaps,
 };
-
-function numberToRaceMode(v: number) : RaceMode {
- if (v == RaceMode.FastesTwoContinousLaps) {
- return RaceMode.FastesTwoContinousLaps;
- }
-
-    throw Error;
-}
 
 
 class PlayerRanking {
@@ -147,7 +139,7 @@ class PlayerRankingByContinousLaps extends PlayerRanking {
 }
 
 export class PlayersPage extends Page {
-    root: HTMLElement;
+    _root: HTMLElement;
     playersDom: HTMLElement;
     actionsDom: HTMLElement;
     players: PlayerRanking[];
@@ -223,13 +215,18 @@ export class PlayersPage extends Page {
         return this.playersDom;
     }
 
-    getDom(): HTMLElement {
-        if (! this.root) {
-            this.root = div(
+    private get root() {
+        if (! this._root) {
+            this._root = div(
                 this.getActionsDom(),
                 this.getPlayersDom()
             );
         }
+        return this._root;
+    }
+
+    public getDom(): HTMLElement {
+        SimpleFpvTimer.requestPlayersUpdate();
         return this.root;
     }
 

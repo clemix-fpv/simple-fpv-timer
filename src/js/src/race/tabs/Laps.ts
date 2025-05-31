@@ -1,5 +1,5 @@
 import van from "../../lib/van-1.5.2.js"
-import { Lap, Page, Player } from "../../SimpleFpvTimer";
+import { Lap, Page, Player, SimpleFpvTimer } from "../../SimpleFpvTimer";
 import { format_ms } from "../../utils.js";
 const {button, div, pre, ul, li, a, table, thead, tbody, th, tr,td} = van.tags
 
@@ -85,20 +85,25 @@ class LapsTable {
 }
 
 export class LapsPage extends Page {
-    root: HTMLElement;
+    _root: HTMLElement;
     lapsTable: LapsTable;
 
-    getDom(): HTMLElement {
-        if (! this.root) {
-            this.root = div(this.lapsTable.draw());
+    private get root() {
+        if (! this._root) {
+            this._root = div(this.lapsTable.draw());
         }
+        return this._root;
+    }
+
+    getDom(): HTMLElement {
+        SimpleFpvTimer.requestPlayersUpdate();
         return this.root;
     }
 
-    onPlayersUpdate(ev: Player[]) {
+    onPlayersUpdate(players: Player[]) {
         this.lapsTable = new LapsTable();
 
-        ev.forEach((player: Player) => {
+        players.forEach((player: Player) => {
             player.laps.forEach((lap: Lap) => {
                 this.lapsTable.addRow(new LapsRow(player, lap));
             });
@@ -106,7 +111,7 @@ export class LapsPage extends Page {
 
         this.lapsTable.sortByAbsTime();
 
-        this.getDom().replaceChildren(this.lapsTable.draw());
+        this.root.replaceChildren(this.lapsTable.draw());
     }
 
     constructor() {

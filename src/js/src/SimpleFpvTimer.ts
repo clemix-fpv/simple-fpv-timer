@@ -1,7 +1,7 @@
 import van from "./lib/van-1.5.2.js"
 import { Notifications } from "./Notifications.js";
 import { TimeSync } from "./TimeSync.js";
-import { nullOrUndef } from "./utils.js";
+import { getJSON, nullOrUndef } from "./utils.js";
 const {button, div, pre, ul, li, a} = van.tags
 
 export abstract class Page {
@@ -272,11 +272,11 @@ export class Player {
         this.name = name;
     }
 
-    from(p: Player) {
-        this.name = p.name;
-        this.ipaddr = p.ipaddr;
-        this.laps = p.laps;
-       return this;
+    public static from(p: Player): Player {
+        var p_new = new Player(p.name);
+        p_new.ipaddr = p.ipaddr;
+        p_new.laps = p.laps;
+       return p_new;
     }
 
     /**
@@ -352,7 +352,7 @@ export class SimpleFpvTimer {
                     this.dispatchRSSIUpdateEv(json as RssiEvent);
 
                 } else if (wsEv.type === "players") {
-                    this.dispatchPlayersUpdateEv((json as PlayersEvent).players);
+                    SimpleFpvTimer.dispatchPlayersUpdateEv((json as PlayersEvent).players);
 
                 } else  if (wsEv.type === "ctf") {
                     this.dispatchCtfUpdateEv((json as CtfEvent).ctf);
@@ -436,14 +436,22 @@ export class SimpleFpvTimer {
         return this._root;
     }
 
-    private dispatchPlayersUpdateEv(players: Player[]) {
-        var p2 = new Array<Player>();
+    public static requestPlayersUpdate() {
+        getJSON("/api/v1/settings", (json: any) => {
+            if (json.status && json.status.players) {
+                SimpleFpvTimer.dispatchPlayersUpdateEv(json.status.players);
+            }
+        });
+    }
+
+    public static dispatchPlayersUpdateEv(players: Player[]) {
+        var new_players = new Array<Player>();
         for(const p of players) {
-            const new_p = new Player("").from(p).patchTime(TimeSync.getOffset());
-            p2.push(new_p);
+            const new_p = Player.from(p).patchTime(TimeSync.getOffset());
+            new_players.push(new_p);
         }
         document.dispatchEvent(
-            new CustomEvent("SFT_PLAYERS_UPDATE", {detail: p2})
+            new CustomEvent("SFT_PLAYERS_UPDATE", {detail: new_players})
         );
     }
 
@@ -461,25 +469,5 @@ export class SimpleFpvTimer {
         document.dispatchEvent(
             new CustomEvent("SFT_RSSI", {detail: ev })
         );
-    }
-
-    private async requestSettings() {
-        const url = "/api/v1/settings";
-        try {
-            const response = await fetch(url);
-            if (!response.ok) {
-                throw new Error(`Response status: ${response.status}`);
-            }
-
-            const json = await response.json();
-            if (json.status && json.status.players) {
-                this.dispatchPlayersUpdateEv(json.status.players as Player[]);
-            }
-
-            return json;
-        } catch (error) {
-            console.error(error.message);
-        }
-
     }
 }
