@@ -2,7 +2,7 @@
 A simple FPV timer based on ESP32 + RX5808.
 It is inspired by https://github.com/qdrk/fpvsim-timer and is using the same hardware setup to connect the RX5808. In addition we use GPIO2 to manage the WS2812 LED stribes.
 
-<img src="https://github.com/clemix-fpv/simple-fpv-timer/blob/led_stripe-wip-server/doc/images/circuit.png?raw=true" width="400px" />
+<img src="https://github.com/clemix-fpv/simple-fpv-timer/blob/main/doc/images/circuit.png?raw=true" width="400px" />
 
 This project is still under development!
 
@@ -22,12 +22,14 @@ This project is still under development!
 
 # Installation
 
-This project is build with https://platformio.org/ with espidf Framework for ESP32. Once you have setup your development environment and your ESP32 is connected, run:
+This project is build with https://platformio.org/ with espidf Framework for ESP32. The webui is
+written in typescript/javascript and you need `esbuild` to transpile it.
+
+
+Once you have setup your development environment and installed the dependencies, connect your ESP32 and run:
 ```
 cd src
-pio run -t menuconfig
-pio run -t upload
-pio device monitor
+pio run -t update_fw
 ```
 By default the esp32 will run an open AccessPoint and using a SSID like `simple-FPV-timer-XX`, where `XX` is some random generated string.
 After connecting to the AP, the captive portal webpage should automatically be opened otherwise use `http://192.168.4.1` as address in your browser.
