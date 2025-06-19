@@ -245,6 +245,9 @@ static esp_err_t task_rssi_set_channel(task_rssi_t *tsk, rssi_t *rssi)
         return e;
     }
 
+    // add a delay to allow the channel to settle
+    vTaskDelay(pdMS_TO_TICKS(20));
+
     tsk->rssi = rssi;
     return ESP_OK;
 }
