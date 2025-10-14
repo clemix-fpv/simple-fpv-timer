@@ -217,7 +217,8 @@ export class Config {
         }
     }
 
-    public async save(func: CallableFunction) {
+    public async save({callback, show_success_message=true}:
+                      {callback?: CallableFunction, show_success_message?: boolean}) {
         const url = "/api/v1/settings";
         try {
             const response = await fetch(url, {
@@ -229,13 +230,15 @@ export class Config {
             });
             if (!response.ok) {
                 Notifications.showError({msg: `Failed to save config ${response.status}`})
-                func(null);
+                if (callback)
+                    callback(null);
             } else {
 
                 const json = await response.json();
                 if (json.status !== "ok") {
                     Notifications.showError({msg: `Failed to save config ${json.msg}`})
-                    func(null);
+                    if (callback)
+                        callback(null);
                 } else {
                     if (json.config) {
                         this.setValues(json.config);
@@ -244,8 +247,11 @@ export class Config {
                     document.dispatchEvent(
                         new CustomEvent("SFT_CONFIG_UPDATE", {detail: this})
                     );
-                    func(this);
-                    Notifications.showSuccess({msg: "Configuration saved!"});
+                    if (callback)
+                        callback(this);
+
+                    if (show_success_message)
+                        Notifications.showSuccess({msg: "Configuration saved!"});
                 }
             }
 

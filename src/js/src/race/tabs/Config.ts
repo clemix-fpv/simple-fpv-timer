@@ -784,13 +784,13 @@ export class ConfigForm {
                         var cfg = new Config();
                         cfg.setValues(this.getKeyValues());
 
-                        cfg.save((cfg: Config) => {
+                        cfg.save({callback: (cfg: Config) => {
                             if (cfg)
                                 this.updateForm(cfg);
 
                             btn.classList.remove("disabled");
                             btn.disabled = false;
-                        });
+                        }});
                     }}, "Submit")
                 );
     }

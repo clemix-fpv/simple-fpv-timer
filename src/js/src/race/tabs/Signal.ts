@@ -69,6 +69,126 @@ function svg_play() {
     return svg("M10.804 8 5 4.633v6.734zm.792-.696a.802.802 0 0 1 0 1.392l-6.363 3.692C4.713 12.69 4 12.345 4 11.692V4.308c0-.653.713-.998 1.233-.696z");
 }
 
+function moveTheasholdPlugin(signal_page: SignalPage) {
+
+    let m_axis = null;
+
+    function init(u: uPlot, opts, data){
+        let over = u.over;
+
+        function getThreshold(i: number) {
+            return {
+                value: u.data.at(i).at(0),
+                show: u.series.at(i).show,
+            }
+        }
+
+        function getPeak() {
+            return getThreshold(1);
+        }
+
+        function getEnter() {
+            return getThreshold(2);
+        }
+
+        function getLeave() {
+            return getThreshold(3);
+        }
+
+        over.addEventListener("mouseup", () => {
+            if (m_axis) {
+                var cfg = new Config();
+                cfg.setValues({
+                    "rssi[0].peak":
+                        String(Math.trunc(signal_page.cfg.rssi[0].peak)),
+                    "rssi[0].offset_enter":
+                        String(Math.trunc(signal_page.cfg.rssi[0].offset_enter)),
+                    "rssi[0].offset_leave":
+                        String(Math.trunc(signal_page.cfg.rssi[0].offset_leave)),
+                });
+                cfg.save({show_success_message: false});
+            }
+            m_axis = null;
+        });
+
+        over.addEventListener("mousedown", e => {
+            let rect = over.getBoundingClientRect();
+            let relative_pos = e.clientY - rect.y;
+            let valY = u.posToVal(relative_pos, 'y');
+            let peak = getPeak();
+            let enter = getEnter();
+            let leave = getLeave();
+
+            let peakPos = u.valToPos(peak.value, 'y')
+            let enterPos = u.valToPos(enter.value, 'y')
+            let leavePos = u.valToPos(leave.value, 'y')
+
+            let click_offset = 5;
+            if (enter.show &&
+                u.posToVal(enterPos + click_offset, 'y') < valY &&
+                valY < u.posToVal(enterPos - click_offset, 'y')){
+                m_axis = "enter";
+            } else if ( leave.show &&
+                u.posToVal(leavePos+click_offset, 'y') < valY &&
+                valY < u.posToVal(leavePos-click_offset, 'y') ){
+
+                m_axis = "leave";
+            } else if ( peak.show &&
+                u.posToVal(peakPos+click_offset, 'y') < valY &&
+                valY < u.posToVal(peakPos-click_offset, 'y') ){
+
+                m_axis = "peak";
+            }
+
+        });
+        over.addEventListener("mouseleave", () => {
+            var cfg = new Config();
+            cfg.update((cfg: Config) => {
+                signal_page.cfg.rssi[0].peak = cfg.rssi[0].peak;
+                signal_page.cfg.rssi[0].offset_enter = cfg.rssi[0].offset_enter;
+                signal_page.cfg.rssi[0].offset_leave = cfg.rssi[0].offset_leave;
+                signal_page.onNextValues();
+                m_axis = null;
+            });
+        });
+    }
+
+    function setCursor(u: uPlot) {
+        let top = u.cursor.top;
+
+        if (!m_axis)
+            return;
+
+        let val = u.posToVal(top, 'y');
+
+        if (m_axis == 'enter')  {
+            let peak = signal_page.cfg.rssi[0].peak;
+            if (peak < val) {
+                peak = signal_page.cfg.rssi[0].peak = val;
+            }
+            signal_page.cfg.rssi[0].offset_enter =  val / peak * 100;
+        } else  if (m_axis == 'leave') {
+            let peak = signal_page.cfg.rssi[0].peak;
+            if (peak < val) {
+                peak = signal_page.cfg.rssi[0].peak = val;
+            }
+            signal_page.cfg.rssi[0].offset_leave =  val / peak * 100;
+        } else  if (m_axis == 'peak') {
+            signal_page.cfg.rssi[0].peak = val;
+        }
+
+        signal_page.onNextValues();
+    }
+
+	return {
+		hooks: {
+            init,
+            setCursor,
+		}
+	};
+}
+
+
 export class SignalPage extends Page {
     root: HTMLElement;
     uplot: uPlot;
@@ -105,9 +225,11 @@ export class SignalPage extends Page {
             title: "",
             width: 1048,
             height: 600,
+			plugins: [
+					moveTheasholdPlugin(this)
+				],
             scales: {
                 x: {
-                    //time: false,
                     time: true,
                 },
                 y: {
@@ -122,6 +244,7 @@ export class SignalPage extends Page {
             {
                 stroke: "#70dba4",
                 label: "peak",
+                show: false,
             },
             {
                 stroke: "#dbc270",
@@ -147,14 +270,6 @@ export class SignalPage extends Page {
                 }
             ],
         };
-
-        //for (let i = 0; i < this.dataq.length; i++) {
-        //    const element = this.dataq[i];
-        //    opts.series[i+1] = {
-        //        label: `freq: ${element.freq}`,
-        //        stroke: this.getSeriesColor(i)
-        //    }
-        //}
 
         this.uplot = new uPlot(opts, [
             [0,1,3],
@@ -405,8 +520,11 @@ export class SignalPage extends Page {
         });
 
         document.addEventListener("SFT_CONFIG_UPDATE", (e: CustomEventInit<Config>) => {
-            if (e.detail)
+            if (e.detail){
                 this.cfg = e.detail;
+                if (this.update_uplot)
+                    this.onNextValues();
+            }
         });
 
         document.addEventListener("SFT_PLAYERS_UPDATE", (e: CustomEventInit<Player[]>) => {
