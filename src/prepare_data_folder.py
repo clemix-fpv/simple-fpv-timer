@@ -188,7 +188,7 @@ env.AddCustomTarget(
     always_build=True,
 )
 
-env.AddCustomTarget(
+default_config_c_target = env.AddCustomTarget(
     name="default_config_c",
     dependencies=["static_files_h"],
     actions=load_default_config,
@@ -197,22 +197,15 @@ env.AddCustomTarget(
     always_build=True,
 )
 
-# forward option --upload-port
-up_port = env.get('UPLOAD_PORT')
-if up_port is None:
-    up_port = ""
-else:
-    up_port = "--upload-port {}".format(up_port)
+# Mark it to always build
+env.AlwaysBuild(default_config_c_target)
 
+# Make compilation depend on generated files being up-to-date
+# Find all .c and .cpp files that might include static_files.h
+src_files = env.Glob("$PROJECT_SRC_DIR/*.c") + env.Glob("$PROJECT_SRC_DIR/*.cpp")
+for src in src_files:
+    env.Depends(src, default_config_c_target)
 
-env.AddCustomTarget(
-    name="update_fw",
-    dependencies=["default_config_c"],
-    actions=["pio run -t upload {}".format(up_port)],
-    title="Update firmware",
-    description="Do what ever is needed and update the ESP32",
-    always_build=False,
-)
 
 env.AddCustomTarget(
     name="js_server",
