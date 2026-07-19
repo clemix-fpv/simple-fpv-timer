@@ -386,7 +386,7 @@ static esp_err_t api_v1_post_handler(httpd_req_t *req)
 
     int json_buffer_sz = (req->content_len > 1024) ? req->content_len : 1024;
     json_buffer_sz = (((json_buffer_sz + 31) / 32) * 32);
-    int sz = tmp_str_sz * 2 + jsmn_tokens_sz * sizeof(jsmntok_t) + req->content_len;
+    int sz = tmp_str_sz * 2 + jsmn_tokens_sz * sizeof(jsmntok_t) + json_buffer_sz;
     if (!(json_buf = malloc(sz))){
         request_send_error(req, "413 Payload Too Large (%d)", sz);
         return ESP_OK;
