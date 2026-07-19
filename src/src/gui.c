@@ -400,10 +400,10 @@ static esp_err_t api_v1_post_handler(httpd_req_t *req)
     int len = httpd_req_recv(req, json_buf, json_buffer_sz);
     if (len > json_buffer_sz) {
         request_send_error(req, "413 Payload Too Large (%d)", len);
-        return ESP_OK;
+        goto out;
     } else if (len < 0) {
         request_send_error(req, "Failed to read payload");
-        return ESP_OK;
+        goto out;
     }
 
     ESP_LOGI(TAG, "%s:%d URI: %s data(%d): %.*s", __func__, __LINE__, req->uri, len, len, json_buf);
