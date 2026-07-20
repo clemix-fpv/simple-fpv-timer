@@ -1119,7 +1119,7 @@ void sft_send_new_lap(ctx_t *ctx, lap_t *lap)
     json = &buf[buf_len];
 
     local_ip = get_ip(ctx);
-    jw_init(&jw, json, sizeof(json));
+    jw_init(&jw, json, buf_len);
     jw_object(&jw){
         jw_kv_str(&jw, "player", ctx->cfg.eeprom.rssi[0].name);
         jw_kv_int(&jw, "id", lap->id);
