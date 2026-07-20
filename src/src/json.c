@@ -401,48 +401,43 @@ void jw_kv_str(json_writer_t *jw, const char *key, const char *value)
 
 void jw_int(json_writer_t *jw, int value)
 {
-    int len = 0;
-    int v = value;
-    while(v > 0) {
-        len++;
-        v /= 10;
-    }
-    if (value < 0)
-        len++;
+    char tmp[16];
+    int len = snprintf(tmp, sizeof(tmp), "%d", value);
 
-    jw_can_write(jw, len);
-    jw->wptr += sprintf(jw->wptr,"%d", value);
+    if (len < 0 || !jw_can_write(jw, len + 1))
+        return;
+
+    memcpy(jw->wptr, tmp, len);
+    jw->wptr += len;
+    *jw->wptr = '\0';
     jw_put(jw, ',');
 }
 
 void jw_int32(json_writer_t *jw, int32_t value)
 {
-    int len = 0;
-    int v = value;
-    while(v > 0) {
-        len++;
-        v /= 10;
-    }
-    if (value < 0)
-        len++;
+    char tmp[16];
+    int len = snprintf(tmp, sizeof(tmp), "%"PRId32, value);
 
-    jw_can_write(jw, len);
-    jw->wptr += sprintf(jw->wptr,"%"PRId32, value);
+    if (len < 0 || !jw_can_write(jw, len + 1))
+        return;
+
+    memcpy(jw->wptr, tmp, len);
+    jw->wptr += len;
+    *jw->wptr = '\0';
     jw_put(jw, ',');
 }
 
 void jw_uint64(json_writer_t *jw, uint64_t value)
 {
-    int len = 0;
-    uint64_t v = value;
+    char tmp[24];
+    int len = snprintf(tmp, sizeof(tmp), "%"PRIu64, value);
 
-    while(v > 0) {
-        len++;
-        v /= 10;
-    }
+    if (len < 0 || !jw_can_write(jw, len + 1))
+        return;
 
-    jw_can_write(jw, len);
-    jw->wptr += sprintf(jw->wptr,"%"PRIu64, value);
+    memcpy(jw->wptr, tmp, len);
+    jw->wptr += len;
+    *jw->wptr = '\0';
     jw_put(jw, ',');
 }
 
