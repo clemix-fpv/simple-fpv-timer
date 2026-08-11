@@ -1,19 +1,19 @@
 /*
  * ----------------------------------------------------------------------------
  * "THE BEER-WARE LICENSE" (Revision 42):
- * Jeroen Domburg <jeroen@spritesmods.com> wrote this file. As long as you retain 
- * this notice you can do whatever you want with this stuff. If we meet some day, 
- * and you think this stuff is worth it, you can buy me a beer in return. 
+ * Jeroen Domburg <jeroen@spritesmods.com> wrote this file. As long as you retain
+ * this notice you can do whatever you want with this stuff. If we meet some day,
+ * and you think this stuff is worth it, you can buy me a beer in return.
  *
- * modified for ESP32 by Cornelis 
- * 
+ * modified for ESP32 by Cornelis
+ *
  * ----------------------------------------------------------------------------
  */
 
 
 /*
 This is a 'captive portal' DNS server: it basically replies with a fixed IP (in this case:
-the one of the SoftAP interface of this ESP module) for any and all DNS queries. This can 
+the one of the SoftAP interface of this ESP module) for any and all DNS queries. This can
 be used to send mobile phones, tablets etc which connect to the ESP in AP mode directly to
 the internal webserver.
 */
@@ -96,6 +96,9 @@ typedef struct __attribute__ ((packed)) {
 static char*  labelToStr(char *packet, char *labelPtr, int packetSz, char *res, int resMaxLen) {
     int i, j, k;
     char *endPtr=NULL;
+    //Limit the number of compression-pointer jumps to guard against
+    //loops/cycles crafted in a malicious packet (each jump must make progress).
+    int jumps=0;
     i=0;
     do {
         if ((*labelPtr&0xC0)==0) {
@@ -108,7 +111,9 @@ static char*  labelToStr(char *packet, char *labelPtr, int packetSz, char *res, 
                 if (i<resMaxLen-1) res[i++]=*labelPtr++;
             }
         } else if ((*labelPtr&0xC0)==0xC0) {
-            //Compressed label pointer
+            //Compressed label pointer. Need two bytes to read the offset.
+            if ((labelPtr-packet)+1 >= packetSz) return NULL;
+            if (++jumps > packetSz) return NULL; //too many pointer jumps -> cycle
             endPtr=labelPtr+2;
             int offset = lwip_ntohs(*(uint16_t*)labelPtr) & 0x3FFF;
             //Check if offset points to somewhere outside of the packet
@@ -124,19 +129,23 @@ static char*  labelToStr(char *packet, char *labelPtr, int packetSz, char *res, 
 }
 
 //Converts a dotted hostname to the weird label form dns uses.
+//Needs maxLen >= 2 to encode even the empty label + terminator.
 static char  *strToLabel(char *str, char *label, int maxLen) {
+    char *end=label+maxLen;
     char *len=label; //ptr to len byte
     char *p=label+1; //ptr to next label byte to be written
+    if (maxLen < 2) return NULL;
     while (1) {
         if (*str=='.' || *str==0) {
             *len=((p-len)-1);	//write len of label bit
             len=p;				//pos of len for next part
             p++;				//data ptr is one past len
+            if (p>end) return NULL;
             if (*str==0) break;	//done
             str++;
         } else {
+            if (p>=end) return NULL;
             *p++=*str++;	//copy byte
-            //if ((p-label)>maxLen) return NULL;	//check out of bounds
         }
     }
     *len=0;
@@ -154,7 +163,7 @@ static void  captdnsRecv(struct sockaddr_in *premote_addr, char *pusrdata, unsig
     DnsHeader *hdr=(DnsHeader*)p;
     DnsHeader *rhdr=(DnsHeader*)&reply[0];
     p+=sizeof(DnsHeader);
-    //	printf("DNS packet: id 0x%X flags 0x%X rcode 0x%X qcnt %d ancnt %d nscount %d arcount %d len %d\n", 
+    //	printf("DNS packet: id 0x%X flags 0x%X rcode 0x%X qcnt %d ancnt %d nscount %d arcount %d len %d\n",
     //		lwip_ntohs(hdr->id), hdr->flags, hdr->rcode, lwip_ntohs(hdr->qdcount), lwip_ntohs(hdr->ancount), lwip_ntohs(hdr->nscount), lwip_ntohs(hdr->arcount), length);
     //Some sanity checks:
     if (length>DNS_LEN) return; 								//Packet is longer than DNS implementation allows
@@ -165,7 +174,7 @@ static void  captdnsRecv(struct sockaddr_in *premote_addr, char *pusrdata, unsig
     memcpy(reply, pusrdata, length);
     rhdr->flags|=FLAG_QR;
 
-    for (i=0; i< lwip_ntohs(hdr->qdcount); i++) 
+    for (i=0; i< lwip_ntohs(hdr->qdcount); i++)
     {
         //Grab the labels in the q string
         p=labelToStr(pusrdata, p, length, buff, sizeof(buff));
@@ -181,6 +190,7 @@ static void  captdnsRecv(struct sockaddr_in *premote_addr, char *pusrdata, unsig
 
             rend=strToLabel(buff, rend, sizeof(reply)-(rend-reply)); //Add the label
             if (rend==NULL) return;
+            if ((size_t)(&reply[sizeof(reply)]-rend) < sizeof(DnsResourceFooter)+4) return;
             DnsResourceFooter *rf=(DnsResourceFooter *)rend;
             rend+=sizeof(DnsResourceFooter);
             rf->type = lwip_htons(QTYPE_A);
@@ -204,6 +214,8 @@ static void  captdnsRecv(struct sockaddr_in *premote_addr, char *pusrdata, unsig
         } else if (lwip_ntohs(qf->type) == QTYPE_NS) {
             //Give ns server. Basically can be whatever we want because it'll get resolved to our IP later anyway.
             rend=strToLabel(buff, rend, sizeof(reply)-(rend-reply)); //Add the label
+            if (rend==NULL) return;
+            if ((size_t)(&reply[sizeof(reply)]-rend) < sizeof(DnsResourceFooter)+4) return;
             DnsResourceFooter *rf=(DnsResourceFooter *)rend;
             rend+=sizeof(DnsResourceFooter);
             rf->type = lwip_htons(QTYPE_NS);
@@ -219,6 +231,8 @@ static void  captdnsRecv(struct sockaddr_in *premote_addr, char *pusrdata, unsig
         } else if (lwip_ntohs(qf->type) == QTYPE_URI) {
             //Give uri to us
             rend=strToLabel(buff, rend, sizeof(reply)-(rend-reply)); //Add the label
+            if (rend==NULL) return;
+            if ((size_t)(&reply[sizeof(reply)]-rend) < sizeof(DnsResourceFooter)+sizeof(DnsUriHdr)+16) return;
             DnsResourceFooter *rf=(DnsResourceFooter *)rend;
             rend+=sizeof(DnsResourceFooter);
             DnsUriHdr *uh=(DnsUriHdr *)rend;
@@ -234,7 +248,7 @@ static void  captdnsRecv(struct sockaddr_in *premote_addr, char *pusrdata, unsig
             rhdr->ancount = lwip_htons(lwip_ntohs(rhdr->ancount) + 1);
             //printf("Added NS rec to resp. Resp len is %d\n", (rend-reply));
         }
-    }	
+    }
     //Send the response
     //printf("Send response\n");
     sendto(sockFd,(uint8_t*)reply, rend-reply, 0, (struct sockaddr *)premote_addr, sizeof(struct sockaddr_in));
@@ -251,7 +265,7 @@ static void captdnsTask(void *pvParameters) {
 
     //memset(&ipconfig, 0, sizeof(ipconfig));
     memset(&server_addr, 0, sizeof(server_addr));
-    server_addr.sin_family = AF_INET;	   
+    server_addr.sin_family = AF_INET;
     server_addr.sin_addr.s_addr = INADDR_ANY;
     server_addr.sin_port = lwip_htons(53);
     server_addr.sin_len = sizeof(server_addr);
@@ -285,15 +299,7 @@ static void captdnsTask(void *pvParameters) {
     vTaskDelete(NULL);
 }
 
-void captdnsInit(void) 
+void captdnsInit(void)
 {
     xTaskCreate(captdnsTask, (const char *)"captdns_task", 10000, NULL, 3, NULL);
 }
-
-
-
-        
-
-
-
-
