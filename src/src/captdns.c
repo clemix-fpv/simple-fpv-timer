@@ -101,11 +101,11 @@ static char*  labelToStr(char *packet, char *labelPtr, int packetSz, char *res, 
         if ((*labelPtr&0xC0)==0) {
             j=*labelPtr++; //skip past length
             //Add separator period if there already is data in res
-            if (i<resMaxLen && i!=0) res[i++]='.';
+            if (i<resMaxLen-1 && i!=0) res[i++]='.';
             //Copy label to res
             for (k=0; k<j; k++) {
                 if ((labelPtr-packet)>packetSz) return NULL;
-                if (i<resMaxLen) res[i++]=*labelPtr++;
+                if (i<resMaxLen-1) res[i++]=*labelPtr++;
             }
         } else if ((*labelPtr&0xC0)==0xC0) {
             //Compressed label pointer
