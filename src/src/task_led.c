@@ -222,6 +222,7 @@ static bool task_led_command_append(task_led_t *task, const led_command_t * cmds
     if (task->stack_ptr > 0) {
         if (task->stack_ptr > task->stack_sz) {
             task->stack_sz = 0;
+            task->stack_ptr = 0;
         } else {
             memmove(task->stack, &task->stack[task->stack_ptr],
                     (task->stack_sz - task->stack_ptr) * sizeof(task->stack[0]));
