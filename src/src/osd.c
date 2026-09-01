@@ -214,7 +214,7 @@ bool osd_eval_format(osd_t* osd,const char *format, int lap, unsigned long long 
                     SAVE_SNPRINTF("%*.*f", minlen, digits, duration / 1000.0f);
                     break;
                 case FTYPE_TIME_MILLIS:
-                    SAVE_SNPRINTF("%*.llu", minlen, duration);
+                    SAVE_SNPRINTF("%*llu", minlen, duration);
                     break;
                 case FTYPE_TIME_MINUTES:
                     minutes = duration / 60000;
@@ -226,7 +226,7 @@ bool osd_eval_format(osd_t* osd,const char *format, int lap, unsigned long long 
                     SAVE_SNPRINTF("%+*.*f", minlen, digits, diff / 1000.0f);
                     break;
                 case FTYPE_DELTA_MILLIS:
-                    SAVE_SNPRINTF("%+*.lld", minlen, diff);
+                    SAVE_SNPRINTF("%+*lld", minlen, diff);
                     break;
                 case FTYPE_DELTA_MINUTES:
                     minutes = diff / 60000;
@@ -237,7 +237,7 @@ bool osd_eval_format(osd_t* osd,const char *format, int lap, unsigned long long 
                                   minutes, diff/1000 < 10 ? "0":"", digits, diff / 1000.0f);
                     break;
                 case FTYPE_LAP:
-                    SAVE_SNPRINTF("%*.d", minlen, lap);
+                    SAVE_SNPRINTF("%*d", minlen, lap);
                     break;
                 default:
                     printf("UNKNOWN type: %d\n", type);
