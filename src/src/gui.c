@@ -724,7 +724,6 @@ esp_err_t gui_send_http2(ctx_t *ctx, const char *url, const char *json)
         ESP_LOGI(TAG, "HTTP POST Status = %d, content_length = %"PRId64,
                 esp_http_client_get_status_code(client),
                 esp_http_client_get_content_length(client));
-        return ESP_OK;
     } else {
         ESP_LOGE(TAG, "HTTP POST request failed: %s", esp_err_to_name(err));
     }
