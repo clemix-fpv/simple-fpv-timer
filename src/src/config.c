@@ -230,12 +230,13 @@ esp_err_t cfg_load(struct config *cfg)
     }
 
     err = nvs_get_blob(my_handle, CFG_NVS_KEY, &cfg_data, &required_size);
-    if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND)
+    if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND) {
+        nvs_close(my_handle);
         return err;
+    }
 
-    if (required_size == 0) {
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
         cfg_data_init(&cfg->eeprom, my_handle);
-        return ESP_OK;
     } else {
         cfg->eeprom = cfg_data;
         if (memcmp(cfg_data.magic, cfg_default_magic(), sizeof(cfg_data.magic)) != 0) {
