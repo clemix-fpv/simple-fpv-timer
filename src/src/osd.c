@@ -63,7 +63,7 @@ bool osd_espnow_send(osd_t* osd, msp_packet_t *pkt)
         return false;
     }
 
-    msp_crc(&msp_pkt);
+    msp_crc(pkt);
     esp_now_send(osd->peer_addr, (uint8_t *) pkt, msp_len(pkt));
     return true;
 }
