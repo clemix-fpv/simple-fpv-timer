@@ -403,10 +403,8 @@ void jw_int(json_writer_t *jw, int value)
 {
     char tmp[16];
     int len = snprintf(tmp, sizeof(tmp), "%d", value);
-
-    if (len < 0 || !jw_can_write(jw, len + 1))
+    if (len < 0 || (size_t)len >= sizeof(tmp) || !jw_can_write(jw, len))
         return;
-
     memcpy(jw->wptr, tmp, len);
     jw->wptr += len;
     *jw->wptr = '\0';
@@ -417,10 +415,8 @@ void jw_int32(json_writer_t *jw, int32_t value)
 {
     char tmp[16];
     int len = snprintf(tmp, sizeof(tmp), "%"PRId32, value);
-
-    if (len < 0 || !jw_can_write(jw, len + 1))
+    if (len < 0 || (size_t)len >= sizeof(tmp) || !jw_can_write(jw, len))
         return;
-
     memcpy(jw->wptr, tmp, len);
     jw->wptr += len;
     *jw->wptr = '\0';
@@ -431,10 +427,8 @@ void jw_uint64(json_writer_t *jw, uint64_t value)
 {
     char tmp[24];
     int len = snprintf(tmp, sizeof(tmp), "%"PRIu64, value);
-
-    if (len < 0 || !jw_can_write(jw, len + 1))
+    if (len < 0 || (size_t)len >= sizeof(tmp) || !jw_can_write(jw, len))
         return;
-
     memcpy(jw->wptr, tmp, len);
     jw->wptr += len;
     *jw->wptr = '\0';
