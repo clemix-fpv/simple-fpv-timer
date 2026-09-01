@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0+
 
+#include <errno.h>
+#include <limits.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -302,7 +304,7 @@ int parse_int(const char *str) {
         res = strtol(str + 2, NULL, 16);
 
     } else {
-        res = atoi(str);
+        res = strtol(str, NULL, 10);
     }
 
     if (errno == ERANGE || res > INT_MAX || res < INT_MIN) {
@@ -362,7 +364,7 @@ void macaddr_from_str(unsigned char *dst, const char * value)
     if (sscanf(value, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
                &mac[0], &mac[1], &mac[2], &mac[3], &mac[4], &mac[5]) == 6) {
         memcpy(dst, mac, 6);
-    } else if (sscanf(value, "%hhd,%hhd,%hhd,%hhd,%hhd,%hhd",
+    } else if (sscanf(value, "%hhu,%hhu,%hhu,%hhu,%hhu,%hhu",
                       &mac[0], &mac[1], &mac[2], &mac[3], &mac[4], &mac[5]) == 6) {
         memcpy(dst, mac, 6);
     }
@@ -376,7 +378,7 @@ void cfg_dump(struct config * cfg)
 
     printf("CONFIGURATION ---- \n  magic: %.4s\n", eeprom->magic);
     for(; cm->name != NULL; cm++) {
-        if (cm->type == UINT16) {
+        if (cm->type == INT16) {
             int16_t eeprom_value = *(int16_t*)((unsigned char*)eeprom + cm->offset);
             int16_t running_value = *(int16_t*)((unsigned char*)running + cm->offset);
 
@@ -438,7 +440,9 @@ void cfg_dump(struct config * cfg)
 
 bool cfg_meta_json_encode(struct config_data * cfg, const struct config_meta *cm, json_writer_t *jw)
 {
-    if (cm->type == UINT16 || cm->type == INT16) {
+    if (cm->type == INT16) {
+        jw_kv_int(jw, cm->name, *(int16_t*)((unsigned char*)cfg + cm->offset));
+    } else if (cm->type == UINT16) {
         jw_kv_int(jw, cm->name, *(uint16_t*)((unsigned char*)cfg + cm->offset));
     } else if (cm->type == UINT32) {
         jw_kv_int32(jw, cm->name, *(uint32_t*)((unsigned char*)cfg + cm->offset));
