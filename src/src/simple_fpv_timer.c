@@ -118,6 +118,9 @@ static void sft_emit_led_static(ctx_t *ctx, color_t color)
     uint16_t sz = sizeof(sft_event_led_command_t) + sizeof(sft_led_command_t);
     sft_event_led_command_t *ev = calloc(1, sz);
 
+    if (!ev)
+        return;
+
     ev->num = 1;
     cmd = &ev->commands[0];
     cmd->type = SFT_LED_CMD_TYPE_PERCENT_TRANSITION;
@@ -136,6 +139,9 @@ void sft_emit_led_blink(ctx_t *ctx, color_t color)
     sft_led_command_t *cmd;
     size_t sz = sizeof(sft_event_led_command_t) + sizeof(sft_led_command_t) * 5;
     sft_event_led_command_t *ev = calloc(1, sz);
+
+    if (!ev)
+        return;
 
     ev->num = 5;
     cmd = &ev->commands[0];
@@ -174,7 +180,7 @@ void sft_emit_led_blink(ctx_t *ctx, color_t color)
 
 struct player_s* sft_player_get_or_create(lap_counter_t *lc, ip4_addr_t ip4, const char *name)
 {
-    struct player_s *player, *end = &lc->players[MAX_PLAYER-1];
+    struct player_s *player, *end = &lc->players[MAX_PLAYER];
 
     if (!lc || !ip4.addr)
         return NULL;
@@ -182,8 +188,10 @@ struct player_s* sft_player_get_or_create(lap_counter_t *lc, ip4_addr_t ip4, con
     for (player = &lc->players[1]; player != end; player++) {
 
         if (player->ip4.addr == ip4.addr){
-            if (name)
+            if (name) {
                 strncpy(player->name, name, MAX_NAME_LEN);
+                player->name[MAX_NAME_LEN-1] = 0;
+            }
             return player;
         }
     }
