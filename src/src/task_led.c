@@ -181,22 +181,26 @@ static void task_led_command_process(task_led_t* task)
                 duration = (cmd->update_interval?: 500) * 1000;
             }
 
-            uint16_t led_offset = cmd->offset;
-            uint16_t led_offset_end = cmd->offset_end;
-            uint16_t led_num = cmd->num;
-            uint16_t led_num_end = cmd->num_end;
+            int32_t led_offset = cmd->offset;
+            int32_t led_offset_end = cmd->offset_end;
+            int32_t led_num = cmd->num;
+            int32_t led_num_end = cmd->num_end;
             if (cmd->type == SFT_LED_CMD_TYPE_PERCENT_TRANSITION) {
-                led_offset = (cmd->offset * task->led.num_leds) / 100;
-                led_offset_end = (cmd->offset_end * task->led.num_leds) / 100;
-                led_num = (cmd->num * task->led.num_leds) / 100;
-                led_num_end = (cmd->num_end * task->led.num_leds) / 100;
+                led_offset = ((int32_t)cmd->offset * task->led.num_leds) / 100;
+                led_offset_end = ((int32_t)cmd->offset_end * task->led.num_leds) / 100;
+                led_num = ((int32_t)cmd->num * task->led.num_leds) / 100;
+                led_num_end = ((int32_t)cmd->num_end * task->led.num_leds) / 100;
             }
 
-            uint16_t add_offset = ((led_offset_end - led_offset) * persent) / 100;
-            uint16_t add_num = ((led_num_end - led_num) * persent) / 100;
+            int32_t add_offset = ((led_offset_end - led_offset) * persent) / 100;
+            int32_t add_num = ((led_num_end - led_num) * persent) / 100;
 
-            idx_start = led_offset + add_offset;
-            num_leds = led_num + add_num;
+            int32_t start = led_offset + add_offset;
+            int32_t count = led_num + add_num;
+            if (start < 0) start = 0;
+            if (count < 0) count = 0;
+            idx_start = (uint32_t)start;
+            num_leds = (uint32_t)count;
             break;
     }
 
