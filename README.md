@@ -28,8 +28,7 @@ written in typescript/javascript and you need `esbuild` to transpile it.
 
 Once you have setup your development environment and installed the dependencies, connect your ESP32 and run:
 ```
-cd src
-pio run -t update_fw
+pio run -t update
 ```
 By default the esp32 will run an open AccessPoint and using a SSID like `simple-FPV-timer-XX`, where `XX` is some random generated string.
 After connecting to the AP, the captive portal webpage should automatically be opened otherwise use `http://192.168.4.1` as address in your browser.
@@ -41,4 +40,3 @@ After connecting to the AP, the captive portal webpage should automatically be o
 <img src="https://github.com/clemix-fpv/simple-fpv-timer/blob/main/doc/images/webui_mobile_config_view.png?raw=true" width="300px" />
 <img src="https://github.com/clemix-fpv/simple-fpv-timer/blob/main/doc/images/webui_mobile_debug_rssi_graph.png?raw=true" width="300px" />
 <img src="https://github.com/clemix-fpv/simple-fpv-timer/blob/main/doc/images/hdz_osd_timer.png?raw=true" width="90%" />
-
