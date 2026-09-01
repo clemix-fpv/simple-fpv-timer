@@ -240,28 +240,40 @@ static inline bool streq(const char *str1, const char *str2)
 
 static esp_err_t api_v1_post_osd(httpd_req_t *req, ctx_t *ctx, const char *uri_tok, json_t *jr)
 {
-    static const size_t buffer_sz = 64;
     osd_t *osd = &ctx->osd;
     json_writer_t jw;
     char *tmp_buf64 = NULL;
     char *tmp2_buf64 = NULL;
+    static const int tmp_buf_sz = 64;
+    static const int jsmn_tokens_num = 64;
+
+    jsmntok_t *tokens;
     int x, y;
 
 
-    if (!(tmp_buf64 = malloc(buffer_sz))) {
+    if (!(tokens = malloc(jsmn_tokens_num * sizeof(jsmntok_t)))) {
         request_send_error(req, OUT_OF_MEMORY);
         return ESP_ERR_NO_MEM;
     }
 
-    if (!(tmp2_buf64 = malloc(buffer_sz))) {
+    if (!(tmp_buf64 = malloc(tmp_buf_sz))) {
+        free(tokens);
+        request_send_error(req, OUT_OF_MEMORY);
+        return ESP_ERR_NO_MEM;
+    }
+
+    if (!(tmp2_buf64 = malloc(tmp_buf_sz))) {
+        free(tokens);
         free(tmp_buf64);
         request_send_error(req, OUT_OF_MEMORY);
         return ESP_ERR_NO_MEM;
     }
 
+    j_init(jr, tokens, jsmn_tokens_num);
+
     if (streq(uri_tok, "display_text") || streq(uri_tok, "set_text")) {
 
-        if (j_find_str(jr, "text", tmp_buf64, buffer_sz)
+        if (j_find_str(jr, "text", tmp_buf64, tmp_buf_sz)
             && j_find_int(jr, "x", &x)
             && j_find_int(jr, "y", &y)){
 
@@ -284,9 +296,9 @@ static esp_err_t api_v1_post_osd(httpd_req_t *req, ctx_t *ctx, const char *uri_t
         request_send_ok(req);
 
     } else if (streq(uri_tok, "test_format")) {
-        if (j_find_str(jr, "format", tmp_buf64, buffer_sz)) {
-            if (osd_eval_format(osd, tmp_buf64, 23, 1337,666, tmp2_buf64, buffer_sz)) {
-                jw_init(&jw, tmp_buf64, buffer_sz);
+        if (j_find_str(jr, "format", tmp_buf64, tmp_buf_sz)) {
+            if (osd_eval_format(osd, tmp_buf64, 23, 1337,666, tmp2_buf64, tmp_buf_sz)) {
+                jw_init(&jw, tmp_buf64, tmp_buf_sz);
                 jw_object(&jw){
                     jw_kv_str(&jw, "status", "ok");
                     jw_kv_str(&jw, "msg", tmp2_buf64);
@@ -304,6 +316,7 @@ static esp_err_t api_v1_post_osd(httpd_req_t *req, ctx_t *ctx, const char *uri_t
         }
     }
 
+    free(tokens);
     free(tmp_buf64);
     free(tmp2_buf64);
     return  ESP_OK;
