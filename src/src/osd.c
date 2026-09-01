@@ -16,7 +16,7 @@ static void osd_on_send_timer(void* arg);
 
 bool is_zero_mac(unsigned char *mac)
 {
-    return *((uint32_t*)&mac[0]) == 0 &&  *((uint16_t*)&mac[4]) == 0;
+    return (mac[0] | mac[1] | mac[2] | mac[3] | mac[4] | mac[5]) == 0;
 }
 
 void osd_init(osd_t *osd, unsigned char *peer)
