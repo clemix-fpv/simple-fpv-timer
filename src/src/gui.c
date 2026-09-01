@@ -2,7 +2,6 @@
 
 #include <freertos/FreeRTOS.h>
 #include <stdarg.h>
-#include <stddef.h>
 #include <sys/param.h>
 #include <esp_http_server.h>
 #include <esp_log.h>
@@ -95,7 +94,9 @@ static esp_err_t ws_rssi_handler(httpd_req_t *req)
     static char ws_buffer[512];
 
     if (! req->sess_ctx) {
-        req->sess_ctx = malloc(sizeof(session_ctx_t));
+        req->sess_ctx = calloc(1, sizeof(session_ctx_t));
+        if (!req->sess_ctx)
+            return ESP_ERR_NO_MEM;
         req->free_ctx = session_ctx_free;
     } else {
         ESP_LOGI(TAG, "session: %p", req->sess_ctx);
