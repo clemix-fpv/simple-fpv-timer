@@ -46,8 +46,11 @@ static void espnow_recv_cb(const esp_now_recv_info_t *recv_info, const uint8_t *
 
 void espnow_deinit(wifi_t *wifi)
 {
+    if (!wifi->espnow_active)
+        return;
     esp_now_del_peer(wifi->peer.peer_addr);
     ESP_ERROR_CHECK(esp_now_deinit() );
+    wifi->espnow_active = false;
 }
 
 void espnow_init(wifi_t *wifi, const config_data_t *cfg)
@@ -63,6 +66,7 @@ void espnow_init(wifi_t *wifi, const config_data_t *cfg)
     wifi->peer.encrypt = false;
     memcpy(wifi->peer.peer_addr, cfg->elrs_uid, ESP_NOW_ETH_ALEN);
     ESP_ERROR_CHECK( esp_now_add_peer(&wifi->peer) );
+    wifi->espnow_active = true;
 }
 
 static void wifi_event_handler(void* arg, esp_event_base_t event_base,
