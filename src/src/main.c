@@ -87,6 +87,8 @@ void emit_led_color() {
     sft_led_command_t *cmd = NULL;
     uint16_t sz = sizeof(sft_event_led_command_t) + sizeof(sft_led_command_t);
     sft_event_led_command_t *ev = calloc(1, sz);
+    if (!ev)
+        return;
 
     ev->num = 1;
     cmd = &ev->commands[0];
